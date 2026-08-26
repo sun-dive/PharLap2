@@ -1,0 +1,46 @@
+{
+  "set": "base58",
+  "source": "Base58Check as used by Bitcoin — payload ‖ first 4 bytes of SHA256d(payload)",
+  "note": "⚠ These exist because the BIP-32 set CANNOT reach the leading-zero branch: measured, 0 of its 34 keys begin with a zero byte, since an extended key always starts 0x0488. Removing the branch left every BIP-32 vector green. ⇒ A path the vectors cannot reach is untested, whatever the count says.",
+  "vectors": [
+    {
+      "id": "base58/leading-zero-1",
+      "class": "bsv",
+      "op": "base58.check",
+      "in": {
+        "hex": "0000"
+      },
+      "out": {
+        "b58": "112edB6q"
+      },
+      "hash": "8d93864a77a69ee0d43f6d6c87054b4f80fcf74d65f11b60895eb53d274dfdd5",
+      "note": "two zero bytes — must become two leading 1s"
+    },
+    {
+      "id": "base58/leading-zero-p2pkh",
+      "class": "bsv",
+      "op": "base58.check",
+      "in": {
+        "hex": "00010966776006953d5567439e5e39f86a0d273bee"
+      },
+      "out": {
+        "b58": "16UwLL9Risc3QfPqBUvKofHmBQ7wMtjvM"
+      },
+      "hash": "8487554aa928a9bc4d855fb8b9b21a167702ad7ee79821c1a8b3e665b9c6b163",
+      "note": "a mainnet P2PKH payload: version 0x00"
+    },
+    {
+      "id": "base58/no-leading-zero",
+      "class": "bsv",
+      "op": "base58.check",
+      "in": {
+        "hex": "0488b21e00"
+      },
+      "out": {
+        "b58": "4M9CmcmWsFs4"
+      },
+      "hash": "614d16e28a0ad3cf7f5c32a3224e8a5daa71cc65423b082847c05791be57bf29",
+      "note": "an extended-key prefix — the branch the BIP-32 vectors never reach"
+    }
+  ]
+}

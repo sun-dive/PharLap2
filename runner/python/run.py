@@ -15,6 +15,7 @@ import pathlib
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "impl" / "python"))
 
 
 # ── ⚠⚠ THE CANONICAL FORM ──────────────────────────────────────────────────────────────────────────
@@ -99,7 +100,21 @@ def op_hash160(inp):
     return {"hex": r.hexdigest()}
 
 
+def op_bip32_derive(inp):
+    """★ Aimed at vectors sealed from the BIP before this code existed."""
+    import bip32
+    node = bip32.from_seed(bytes.fromhex(inp["seed"]["hex"])).derive(inp["path"])
+    return {"xprv": node.xprv(), "xpub": node.xpub()}
+
+
+def op_base58_check(inp):
+    import bip32
+    return {"b58": bip32.b58check(bytes.fromhex(inp["hex"]))}
+
+
 OPS = {
+    "bip32.derive": op_bip32_derive,
+    "base58.check": op_base58_check,
     "canon.hash": op_canon_hash,
     "hash.sha256": op_sha256,
     "hash.hash160": op_hash160,
