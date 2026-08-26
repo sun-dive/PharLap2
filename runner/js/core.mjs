@@ -7,6 +7,10 @@
  * wrong — which is exactly the failure the vectors exist to find.
  * */
 import { createHash } from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+const IMPL = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'impl', 'js')
+const bip32 = await import(join(IMPL, 'bip32.mjs'))
 
 /* ── ⚠⚠ THE CANONICAL FORM ───────────────────────────────────────────────────────────────────────
    Bytes, never JSON text. JSON has key order, whitespace and number formatting, and all three differ
@@ -64,6 +68,12 @@ export const canonHash = v => createHash('sha256').update(canon(v)).digest('hex'
 export class NotImplementedOp extends Error {}
 
 export const OPS = {
+  /* ★ aimed at vectors sealed from the BIP before either implementation existed */
+  'bip32.derive': i => {
+    const n = bip32.fromSeed(Buffer.from(i.seed.hex, 'hex')).derive(i.path)
+    return { xprv: n.xprv(), xpub: n.xpub() }
+  },
+  'base58.check': i => ({ b58: bip32.b58check(Buffer.from(i.hex, 'hex')) }),
   /* the harness pinning its own foundation — if the two languages disagree here, nothing built on
      top of it means anything */
   'canon.hash': i => ({ hex: canonHash(i.value) }),

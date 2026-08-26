@@ -69,10 +69,26 @@ evidence."*
 |---|---|
 | `canon` | ✅ 20 vectors — the canonical form, pinning the harness's own foundation |
 | `hash` | ✅ 5 vectors — SHA-256 and HASH160, three checked against **published FIPS 180-4 values** |
-| `bip32` | ✅ **17 vectors** — all four published BIP-32 test vectors, sealed from the specification. ⚠ Skipped until implemented |
+| `bip32` | ✅ **17 vectors** — all four published BIP-32 test vectors, sealed from the specification. **Both languages pass** |
+| `base58` | ✅ 3 — ⚠ written because the BIP-32 set **cannot reach** the leading-zero branch |
 | `bip39/44` | ⏭ next |
 | `bsv` | ⏭ sighash, fee, address encoding, against real mined transactions |
 | `ours` | ⏭ MPT · BMF · BRC-226 — the layer that justifies the exercise |
+
+## ⚠ Every claim here was checked by breaking something
+
+| broken on purpose | vectors that failed |
+|---|---|
+| `ser256` using minimal length instead of 32 bytes | **4** (py) · **16** (js) |
+| JavaScript's `%` without sign correction | **12** |
+| the leading-zero branch in `b58check` | **0 from bip32** ⚠ · **2** from `base58` |
+
+★★★ That third row is the finding. I had written that the leading-zero branch was what BIP-32's test
+vectors 3 and 4 catch. **Removing it left all 42 green** — 0 of their 34 keys begin with a zero byte,
+because an extended key always starts `0x0488`. ⇒ The comment was false, `vectors/base58.json` now
+covers the branch, and what those vectors *actually* test is in `ser256`.
+
+> **A green test on a path the change cannot reach is not evidence.**
 
 ★ One vector was checked for *bite*: `canon/key-order-utf8` produces a different hash under a
 language's default sort than under UTF-8 byte order, **so it fails if either side gets it wrong.**
