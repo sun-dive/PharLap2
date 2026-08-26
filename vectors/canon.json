@@ -1,0 +1,231 @@
+{
+  "set": "canon",
+  "source": "vectors/SCHEMA.md — the canonical form is defined there and nowhere else",
+  "note": "The harness pinning its own foundation. If the two languages disagree here, nothing built on top of it means anything.",
+  "vectors": [
+    {
+      "id": "canon/null",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": null
+      },
+      "hash": "5339c641d111e2c0feaa630aac8c38537c3bbec172416a60e126432c393879e0"
+    },
+    {
+      "id": "canon/true",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": true
+      },
+      "hash": "1a2cd7394d85d2c05de7d09f175138d66e500d07334bdb745e7867c11d671e34"
+    },
+    {
+      "id": "canon/false",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": false
+      },
+      "hash": "9fa9eb709c167694be79af806e6c7dc1d609e3f70815c677e0838dee9f911be7"
+    },
+    {
+      "id": "canon/int-0",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": 0
+      },
+      "hash": "e9f06571abbdb5c94a4f6bc020143c01a06fea79ef1b256ed07f1278cf46f5b3"
+    },
+    {
+      "id": "canon/int-1",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": 1
+      },
+      "hash": "d2e37c809801a695c8bdd0113cbb229f68db0b9674fc4eeb6a9cf299e5a9607d"
+    },
+    {
+      "id": "canon/int-neg1",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": -1
+      },
+      "hash": "b5fabd1d81c8e15556210062b9ed5de3cee86a4d609f6aaf5a57aab9a4c3ae9d",
+      "note": "zigzag: -1 must not become a huge unsigned varint"
+    },
+    {
+      "id": "canon/int-127",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": 127
+      },
+      "hash": "5b771aa20b818e269fced83920816dbab147ade1d9f6e8364370719adb0126d5"
+    },
+    {
+      "id": "canon/int-128",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": 128
+      },
+      "hash": "ecb8d9918f8969df4cf9c9e9bb68ff9e18c53bf0f2debacc907e49367f47bf0d",
+      "note": "the LEB128 continuation boundary"
+    },
+    {
+      "id": "canon/int-sats",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": 2100000000000000
+      },
+      "hash": "bcf6c91fc294aacdb08ca8fc571312dac79b4e11165bb0b2aa5be67dfae202f4",
+      "note": "every satoshi that will ever exist — must survive as an exact integer in both languages"
+    },
+    {
+      "id": "canon/str-empty",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": ""
+      },
+      "hash": "944ff6115bc6d7d7502e423a146f94f4f6f40d383fcbaf44c3069391a102b941"
+    },
+    {
+      "id": "canon/str-ascii",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": "abc"
+      },
+      "hash": "6a837efd96764f6ae208a5f477d565131dd86ad71c18b8d649409696a03cff47"
+    },
+    {
+      "id": "canon/str-unicode",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": "å—æ¹¾"
+      },
+      "hash": "0ac12423b61e64853583330e89a2301e5099f2dc2086378c6530ff5df4ef70b1"
+    },
+    {
+      "id": "canon/bytes-empty",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": {
+          "hex": ""
+        }
+      },
+      "hash": "e87fed78466c546ac35f17a3d066bae39695366462b323dcd9643391edaf72a5"
+    },
+    {
+      "id": "canon/bytes",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": {
+          "hex": "00ff10"
+        }
+      },
+      "hash": "cbf60464b0040533309f1af7c547f15ec9003a9859e60e150030ccb80b33264b"
+    },
+    {
+      "id": "canon/array-empty",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": []
+      },
+      "hash": "7381f932c61868275ab1f3f52bbda514d83734c1e33c6bbcfdb1a5cb8ef7a344"
+    },
+    {
+      "id": "canon/array-mixed",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": [
+          1,
+          "a",
+          null,
+          true,
+          []
+        ]
+      },
+      "hash": "01bf16ce4ed60e9639c2377d85090f7de6f803c941141f956acf80ec5cffb3e8"
+    },
+    {
+      "id": "canon/object-empty",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": {}
+      },
+      "hash": "c188e59cfada618d1a58aea7556001610b8fb63b7f362596846988657712abdd"
+    },
+    {
+      "id": "canon/object-nested",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": {
+          "b": {
+            "c": [
+              1,
+              2
+            ]
+          },
+          "a": 1
+        }
+      },
+      "hash": "013eb460da3651dd65b4b60394742ded9ab1ea560784f6087fa3c7d07e3e5d25",
+      "note": "declared out of order on purpose — the serializer sorts, the JSON does not"
+    },
+    {
+      "id": "canon/key-order-utf8",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": {
+          "ð„ž": 1,
+          "￿": 2
+        }
+      },
+      "hash": "e6bc917119dd21e16771124ea1bf5780bb7d819f6c842ca678ab77f4893680b8",
+      "note": "âš âš  THE ONE THAT CATCHES A LANGUAGE'S DEFAULT SORT. U+1D11E is F0 9D 84 9E in UTF-8 but the surrogate pair D834 DD1E in UTF-16. U+FFFF is EF BF BF in UTF-8 and FFFF in UTF-16. So UTF-8 puts U+FFFF FIRST and UTF-16 puts it SECOND â€” opposite orders. Neither language's default sort is safe; both must be told to compare UTF-8 bytes."
+    },
+    {
+      "id": "canon/deep",
+      "class": "ours",
+      "op": "canon.hash",
+      "in": {
+        "value": {
+          "tx": {
+            "in": [
+              {
+                "hex": "aabb"
+              }
+            ],
+            "out": [
+              {
+                "sats": 1,
+                "script": {
+                  "hex": "76a914"
+                }
+              }
+            ],
+            "v": 2
+          }
+        }
+      },
+      "hash": "6763cf6a706eb2661474ad4ebd6227ca8ef8614a2c97c3fa1846784c8976980c",
+      "note": "the shape real vectors will actually have"
+    }
+  ]
+}

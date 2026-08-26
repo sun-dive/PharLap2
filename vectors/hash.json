@@ -1,0 +1,71 @@
+{
+  "set": "hash",
+  "source": "FIPS 180-4 (SHA-256) and the standard Bitcoin HASH160 = RIPEMD160(SHA256(x))",
+  "note": "class 'bsv' rather than 'ours': anyone with a hash library can check these, which is what makes them a good first proof that the harness itself works.",
+  "vectors": [
+    {
+      "id": "hash/sha256-empty",
+      "class": "bsv",
+      "op": "hash.sha256",
+      "in": {
+        "hex": ""
+      },
+      "hash": "f80b7257be3362405e9ff8d14bdbfaf58bac7f7ae1e9a977eb37eb52c189b9ac",
+      "note": "the published SHA-256 of the empty string",
+      "out": {
+        "hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "id": "hash/sha256-abc",
+      "class": "bsv",
+      "op": "hash.sha256",
+      "in": {
+        "hex": "616263"
+      },
+      "hash": "50c327771d376b19ae375b638fe3f844cabf044708f7ee41713eab8d21b5739e",
+      "note": "\"abc\" — the FIPS 180-4 worked example",
+      "out": {
+        "hex": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+      }
+    },
+    {
+      "id": "hash/sha256-long",
+      "class": "bsv",
+      "op": "hash.sha256",
+      "in": {
+        "hex": "6162636462636465636465666465666765666768666768696768696a68696a6b696a6b6c6a6b6c6d6b6c6d6e6c6d6e6f6d6e6f706e6f7071"
+      },
+      "hash": "d9b9cda3a0b5555e01b45cc175db7f8dd0d4f1c2701e4ca26288556e57535a16",
+      "note": "the 448-bit FIPS example — crosses the padding boundary",
+      "out": {
+        "hex": "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+      }
+    },
+    {
+      "id": "hash/hash160-empty",
+      "class": "bsv",
+      "op": "hash.hash160",
+      "in": {
+        "hex": ""
+      },
+      "hash": "e8f05bb3788fdd6e464a3cac5c19696b0c19edc6e55b273857e1fe1bb76f903d",
+      "out": {
+        "hex": "b472a266d0bd89c13706a4132ccfb16f7c3b9fcb"
+      }
+    },
+    {
+      "id": "hash/hash160-pubkey",
+      "class": "bsv",
+      "op": "hash.hash160",
+      "in": {
+        "hex": "0250863ad64a87ae8a2fe83c1af1a8403cb53f53e486d8511dad8a04887e5b2352"
+      },
+      "hash": "7ca1b258f90763684bf5f4d685f81eece71106492ee6ad5c6531426f47076544",
+      "note": "a compressed public key — the shape hash160 is actually used on",
+      "out": {
+        "hex": "f54a5851e9372b87810a8e60cdd2e7cfd80b6e31"
+      }
+    }
+  ]
+}
