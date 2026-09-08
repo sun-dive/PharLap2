@@ -1,4 +1,4 @@
-// © 2026 sun-dive.
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /** BIP-143's own worked examples — parse, preimage AND sighash, byte for byte.
  *  ★ Each case starts from the BIP's raw unsigned transaction, so a parse bug cannot hide behind a
  *    correct sighash, or the reverse. */

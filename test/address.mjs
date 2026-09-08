@@ -1,4 +1,4 @@
-// © 2026 sun-dive.
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /** WIF and addresses, against the frozen live-wallet vectors. */
 import { wifEncode, wifDecode, b58decode, p2pkhAddress, p2pkhScript } from '../impl/js/address.mjs'
 import { publicKey } from '../impl/js/ecdsa.mjs'

@@ -17,7 +17,7 @@ nothing is left to say where to look.
 
 | | |
 |---|---|
-| **Licence** | MIT · © 2026 sun-dive |
+| **Licence** | **Business Source License 1.1** · © 2026 sun-dive — source-available, converting to **Apache 2.0** on 2030-09-09 |
 | **Runtime dependencies** | **none** — `package.json` has no `dependencies` block because there is nothing to declare |
 | **Third-party source code** | **none.** Every line under `impl/` and `runner/` was written for this repo |
 | **Third-party data** | **one file** — BIP-39's official English wordlist. See §3 |

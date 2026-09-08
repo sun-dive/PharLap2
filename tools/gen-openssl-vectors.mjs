@@ -1,4 +1,4 @@
-// © 2026 sun-dive.
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
  * Generate ECDSA vectors using **openssl** as the oracle — replacing the ones taken from the wallet
  * SDK this project removed.

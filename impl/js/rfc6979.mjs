@@ -1,4 +1,4 @@
-// © 2026 sun-dive.
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
  * RFC 6979 — deterministic `k`.
  *

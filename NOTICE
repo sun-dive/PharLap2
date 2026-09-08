@@ -1,6 +1,13 @@
 Phar Lap 2
 Copyright 2026 sun-dive
 
+Licensed under the Business Source License 1.1. See LICENSE.
+Source-available now; converts to the Apache License 2.0 on 2030-09-09.
+
+⚠ This licence covers Phar Lap 2's own code. Third-party components are
+  NOT covered by it — what is bundled, who owns it, and under what terms
+  is recorded below.
+
 ----------------------------------------------------------------------
 Third-party software
 ----------------------------------------------------------------------

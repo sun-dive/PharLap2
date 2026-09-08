@@ -1,4 +1,4 @@
-// © 2026 sun-dive.
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
  * ★★★ THE WALLET IS BROWSER-ONLY. This proves it, on every run.
  *

@@ -11,7 +11,9 @@ same on-chain formats. **What changed is underneath it.**
 | ⚖ **Redistribution** | A wallet bundle ships to every visitor. Everything inside it is something we hand on, under terms we have to be able to state. ⇒ **Zero runtime dependencies is the simplest honest answer**, and it is the one Phar Lap 2 gives. |
 | ★ **Verifiability** | Owning the core means every layer can be graded against a published oracle rather than trusted — which is what `PROVENANCE.md` and the vector harness exist to make checkable. |
 
-⇒ **Phar Lap 2 is MIT**, © sun-dive, with **zero runtime dependencies.**
+⇒ **Phar Lap 2 is Business Source License 1.1**, © sun-dive, converting to **Apache 2.0** on
+2030-09-09 — the same licence family as Phar Lap 1, with Apache rather than MIT at the end of it for
+the patent grant MIT does not have.
 
 ---
 

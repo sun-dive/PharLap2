@@ -1,4 +1,4 @@
-// © 2026 sun-dive.
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /** BIP-39, against the specification's own vectors. */
 import { toEntropy, fromEntropy, toSeed, isValid, words, nfkd } from '../impl/js/bip39.mjs'
 import { toHex, fromHex, fromUtf8 } from '../impl/js/bytes.mjs'

@@ -96,10 +96,29 @@ language's default sort than under UTF-8 byte order, **so it fails if either sid
 
 ## Licence
 
-**MIT.** ⚠⚠ **Not Open BSV, and that is not a matter of taste.** Open BSV's clause 2 restricts every
-derivative to the BSV Blockchain — so a core under those terms **could not be used on jetmora**, which
-is the entire reason this exists. ⇒ A field-of-use restriction is easy to accept without noticing and
-expensive to discover later, and it is worse to walk into one deliberately.
+**Business Source License 1.1**, converting to the **Apache License 2.0** on **2030-09-09**.
+
+⚠ Source-available, not open source — yet. You may read it, modify it, and make production use of it.
+The one thing you may not do is ship a **competing** wallet, minting or token-issuance product on it.
+Personal, educational, research and internal-evaluation use is always permitted, and the whole thing
+becomes Apache 2.0 on the Change Date.
+
+★★ **The balance this strikes, stated plainly.** Open licensing invites cooperation; it also lets
+someone hijack the work, or subvert it into something it was not for. BSL keeps the source readable and
+the door open, while the project still has to earn its living — and it sets a date after which that
+protection expires rather than lasting forever.
+
+⚠⚠ **Not Open BSV, and that is not a matter of taste.** Open BSV's clause 2 restricts every derivative
+to one blockchain — so a core under those terms **could not be used on jetmora**, which is the entire
+reason this exists. ⇒ Note the difference from the restriction above: **clause 2 binds the user; BSL's
+Additional Use Grant binds third parties, not the Licensor.** A field-of-use restriction someone else
+imposes on you is a different thing from one you set yourself.
+
+★ **And Apache rather than MIT as the Change License, for the patents.** MIT grants copyright permission
+and says nothing whatever about patents, so a contributor or a downstream user can accept it and still
+assert a patent over the same code. Apache §3 grants a patent licence explicitly and terminates it for
+anyone who brings a patent action over the work. ⇒ For a wallet core meant to outlive its author, that
+is the difference between *"you may copy this"* and *"you may copy this and not be sued for it."*
 
 ## What it is built from
 

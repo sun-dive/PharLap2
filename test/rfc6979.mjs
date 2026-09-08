@@ -1,4 +1,4 @@
-// © 2026 sun-dive.
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /** RFC 6979 §A.2.5 — the published P-256 vectors. An oracle neither implementation wrote.
  *  ★ `k` depends only on the group order, the key and the digest, never on the curve's points —
  *    so P-256's vectors grade the algorithm exactly, and secp256k1 then uses the same function. */

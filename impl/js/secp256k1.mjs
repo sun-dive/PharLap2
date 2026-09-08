@@ -1,3 +1,4 @@
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
  * secp256k1 in JavaScript, written to be READ.
  *

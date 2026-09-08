@@ -1,4 +1,4 @@
-// © 2026 sun-dive.
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /** UTXO selection — graded on INVARIANTS, because selection is policy and no oracle can exist.
  *  ★★★ Chief among them: selected == target + fee + change, EXACTLY. Any satoshi neither spent, paid
  *    nor returned has been invented or lost. */
