@@ -52,7 +52,7 @@ replacement**, and anyone reading this should know which rows are still blank.
 | `secp256k1.mjs` · `bip32.mjs` | written from the specifications, against the BIPs' own sealed vectors |
 | `ecdsa.mjs` · `rfc6979.mjs` | written from RFC 6979 and SEC1; graded against openssl and an independent implementation |
 | `bip39.mjs` · `address.mjs` · `transaction.mjs` · `coins.mjs` | written from BIP-39, BIP-143, and Bitcoin's serialization format |
-| `impl/js/data/bip39-english.txt` | **BIP-39's official English wordlist** — the only third-party file, verified byte-identical. See `PROVENANCE.md` |
+| `impl/js/data/wordlist-english.mjs` | **BIP-39's official English wordlist** — the only third-party data, verified byte-identical on every test run. See `PROVENANCE.md` |
 | the vector harness (`runner/`, `vectors/`) | this repo. Two implementations, no shared code, one set of externally sealed answers |
 
 ⇒ **Full detail, method, and controls: `PROVENANCE.md`.**

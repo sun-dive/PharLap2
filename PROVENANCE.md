@@ -84,14 +84,20 @@ to discriminate. It is **not** a line-by-line provenance proof, and it is not le
 
 | file | source | licence |
 |---|---|---|
-| `impl/js/data/bip39-english.txt` | **BIP-39's official English wordlist**, `bitcoin/bips` | BIP-39 is public specification text |
+| `impl/js/data/wordlist-english.mjs` | **BIP-39's official English wordlist**, `bitcoin/bips` | BIP-39 is public specification text |
 
-✅ **Verified byte-identical** to the published list on 8 Sept 2026:
+✅ **Verified byte-identical**, and **re-verified on every test run** rather than once:
+`test/bip39.mjs` reconstructs the original file's exact form from the module and hashes it, so the
+claim below cannot quietly stop being true.
 
 ```
 sha256  2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda
 2048 words · sorted · lowercase ASCII · 2048 distinct four-letter prefixes
 ```
+
+⚠ It is a **module** rather than the original text file because the wallet is browser-only: there is
+no filesystem to read from, and `node:fs` cannot be bundled for a browser at all. The words are
+unchanged.
 
 ★ This file is **specification data, not code**: BIP-39 defines the mapping from index to word, so any
 conforming implementation must use exactly these bytes. Substituting them produces a wallet nobody else
