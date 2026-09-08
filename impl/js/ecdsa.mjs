@@ -109,8 +109,23 @@ export function sign(d, digest32, { lowS = false, rand } = {}) {
     if (r === 0n) continue                       // ★ retry steps the generator forward, never randomly
     let s = mod(invN(k) * (z + r * mod(d, N)), N)
     if (s === 0n) continue
-    // ⚠ lowS is NOT a protocol rule, but a broadcaster can refuse high-s — this project has been
-    //   refused by exactly that. ⇒ negating s is deterministic, so reproducibility survives.
+    /* ⚠⚠ LOW-S IS NOT A PROTOCOL RULE, AND HAS NOT BEEN SINCE APRIL 2026.
+       It is a BIP-62 malleability rule from 2015. **Chronicle removed it** — mainnet block 943,816,
+       7 April 2026, opt-in via transaction version > 1 — along with the rest of that 2015 set.
+
+       ⛔ ONE MAJOR PROCESSOR STILL ENFORCES IT. Measured on mainnet 2026-08-12: of 20 covenant spends,
+       ARC refused exactly the 7 whose signature was high-s — `error 461: Non-canonical signature: S
+       value is unnecessarily high` — while WhatsOnChain accepted all 20. ★ And the chain settled it:
+       one of the refused transactions was MINED, in block 961,975. ⇒ **ARC is the non-conformant
+       party, not the signature.**
+
+       ⇒ SO WHY NORMALISE HERE? Because for KEY-BASED signing it is free: the signer holds the key and
+       simply negates s, which is deterministic, so reproducibility survives and no fee is paid.
+       ⇒ ⚠ THE COVENANT CASE IS DIFFERENT AND THE ANSWER THERE IS THE OPPOSITE. In an OP_PUSH_TX
+       covenant `s` is DERIVED in-script from fixed constants and cannot be conditionally negated, so
+       low-s costs a builder-side GRIND. That was decided against (2026-08-12): bending transactions
+       to satisfy a processor that has not caught up is the wrong default on a chain whose premise is
+       restoring the original protocol. **Do not bake low-s into a covenant.** */
     if (lowS && s > N / 2n) s = N - s
     return encodeDer(r, s)
   }

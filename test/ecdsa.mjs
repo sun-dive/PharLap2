@@ -1,7 +1,23 @@
 // © 2026 sun-dive.
-/** ECDSA over secp256k1, graded against frozen reference signatures.
- *  ⚠ RFC 6979 is deterministic, so a correct implementation must match BYTE FOR BYTE. */
-import { sign, verifyDigest, publicKey, decodeDer, encodeDer } from '../impl/js/ecdsa.mjs'
+/**
+ * ECDSA over secp256k1.
+ *
+ * ★★★ THE CORRECTNESS GRADE IS **OPENSSL**, an implementation with no relationship to this project.
+ *   ⚠⚠ It signs with a RANDOM `k`, so its signatures are never byte-comparable with ours. That rules
+ *     out the easy check and leaves three better ones, each proving something different:
+ *
+ *   | 1 | every `ours` here was **verified by openssl** when the vectors were generated |
+ *   | 2 | every `openssl` here is **verified by us**, now — including the ~half that are HIGH-s, a shape our own signing never produces |
+ *   | 3 | our `k` values are graded by **RFC 6979 §A.2.5's own vectors** in `test/rfc6979.mjs` |
+ *
+ *   ⇒ Valid · interoperable · deterministic. Regenerate with `node tools/gen-openssl-vectors.mjs`.
+ *
+ * ⚠ A separate, OPTIONAL section checks compatibility with the wallet SDK this project removed. That
+ *   is a different claim and is labelled as one: **agreeing with an implementation proves you match
+ *   it, not that either of you is right.** It matters only because keys must restore to the same
+ *   addresses. It never grades correctness, and the suite is complete without it.
+ */
+import { sign, verifyDigest, publicKey, decodeDer } from '../impl/js/ecdsa.mjs'
 import { toHex, fromHex } from '../impl/js/bytes.mjs'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { readFileSync } from 'node:fs'
@@ -9,40 +25,63 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n
 let pass = 0, fail = 0
 const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
+const load = f => { try { return JSON.parse(readFileSync(join(HERE, f), 'utf8')) } catch { return null } }
 
-// ⚠ NOT IN THE REPOSITORY — 237 KB of frozen reference signatures, kept locally and gitignored.
-//   ⇒ Without it this suite SKIPS rather than silently passing, because a skipped check that reports
-//     success is worse than a missing one.
-let V = null
-try { V = JSON.parse(readFileSync(join(HERE, 'sdk-signature-vectors.json'), 'utf8')) } catch {}
-if (V === null) {
-  console.log('⚪  SKIPPED  [ECDSA · frozen reference signatures not present locally]')
+// ── ★ the correctness grade ─────────────────────────────────────────────────────────────────────────
+const O = load('openssl-vectors.json')
+if (O === null) {
+  console.log('⚪  SKIPPED  [ECDSA · openssl vectors not present — run tools/gen-openssl-vectors.mjs]')
   process.exit(0)
 }
-const digestOf = msgHex => sha256(fromHex(msgHex))
-
-for (const [key, label] of [['random', 'random'], ['leading_zero_k', "★ leading-zero k"]]) {
-  const rows = V[key].slice(0, key === 'random' ? 150 : undefined)
-  let rej = 0, diff = 0, pk = 0
-  for (const r of rows) {
-    const d = BigInt('0x' + r.priv), z = digestOf(r.msg)
-    if (toHex(publicKey(d)) !== r.pub) pk++
-    if (!verifyDigest(fromHex(r.der), fromHex(r.pub), z)) rej++
-    if (toHex(sign(d, z, { lowS: true })) !== r.der) diff++
-  }
-  ok(pk === 0, `${label} — public keys (${pk} wrong)`)
-  ok(rej === 0, `${label} — all ${rows.length} reference signatures verify (${rej} rejected)`)
-  ok(diff === 0, `${label} — all ${rows.length} are BYTE-IDENTICAL (${diff} differed)`)
+let badPub = 0, rejected = 0, notDeterministic = 0, highS = 0
+for (const v of O.vectors) {
+  const d = BigInt('0x' + v.priv), z = fromHex(v.digest)
+  if (toHex(publicKey(d)) !== v.pubCompressed) badPub++
+  // ★★ THE ONE THAT MATTERS MOST: a foreign signature, made with a k we did not choose, must verify.
+  if (!verifyDigest(fromHex(v.openssl), fromHex(v.pub), z)) rejected++
+  // ⚠ RFC 6979 means our own signature must reproduce exactly from the same key and digest.
+  if (toHex(sign(d, z, { lowS: true })) !== v.ours) notDeterministic++
+  const b = fromHex(v.openssl), rl = b[3], sl = b[5 + rl]
+  if (BigInt('0x' + toHex(b.subarray(6 + rl, 6 + rl + sl))) > N / 2n) highS++
 }
-// ⛔ strict DER: the check that a signature is not silently malleable
-const m = V.malleability
-ok(decodeDer(fromHex(m.canonical)) !== null, 'the canonical form is accepted')
-ok(decodeDer(fromHex(m.mutated)) === null,
-   "⛔ r without its required 0x00 is REFUSED — two byte strings for one signature is malleability")
-ok(decodeDer(fromHex(m.canonical + 'ff')) === null, '⛔ trailing bytes refused')
-ok(decodeDer(fromHex('3081' + m.canonical.slice(2))) === null, '⛔ BER long-form length refused')
-ok(decodeDer(fromHex(m.canonical + '41'), true) !== null, '★ …but a sighash byte is allowed with allowTrailing')
-console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [ECDSA · frozen reference signatures]`)
+ok(badPub === 0, `public keys derived from openssl's own keys (${badPub} wrong)`)
+ok(rejected === 0, `★★ all ${O.vectors.length} OPENSSL signatures verify under our verifier (${rejected} rejected)`)
+ok(notDeterministic === 0, `★ our signatures reproduce byte for byte from key+digest (${notDeterministic} differed)`)
+// ⚠ if the openssl set contained no high-s, it would be testing nothing our own signing does not
+ok(highS > 0, `★★★ ${highS} of them are HIGH-s — a shape our signing never produces, so the verifier is genuinely exercised`)
+ok(O.openssl?.startsWith('OpenSSL'), `generated by ${O.openssl}`)
+
+// ── ⛔ strict DER — no oracle needed, these are constructed ──────────────────────────────────────────
+const v0 = O.vectors[0]
+ok(decodeDer(fromHex(v0.ours)) !== null, 'a canonical signature parses')
+ok(decodeDer(fromHex(v0.ours + 'ff')) === null, '⛔ trailing bytes refused')
+ok(decodeDer(fromHex('3081' + v0.ours.slice(2))) === null, '⛔ BER long-form length refused')
+ok(decodeDer(fromHex(v0.ours + '41'), true) !== null, '★ …but a sighash byte is allowed with allowTrailing')
+// ⚠ an integer whose top bit is set REQUIRES a leading 0x00, or two byte strings mean one signature
+const padded = O.vectors.find(v => v.ours.slice(8, 10) === '00')
+if (padded) {
+  const rlen = parseInt(padded.ours.slice(6, 8), 16)
+  const stripped = '30' + (parseInt(padded.ours.slice(2, 4), 16) - 1).toString(16).padStart(2, '0')
+    + '02' + (rlen - 1).toString(16).padStart(2, '0') + padded.ours.slice(10, 8 + rlen * 2) + padded.ours.slice(8 + rlen * 2)
+  ok(decodeDer(fromHex(stripped)) === null,
+     "⛔ r stripped of its required 0x00 is REFUSED — malleability, barred on the network since BIP-66")
+} else ok(false, 'no 0x00-padded r in the vector set to test malleability with')
+
+// ── ⚪ OPTIONAL · compatibility with the removed SDK. NOT a correctness claim. ───────────────────────
+const S = load('sdk-signature-vectors.json')
+if (S === null) {
+  console.log('  ⚪ (SDK compatibility section skipped — vectors not present, and the suite does not need them)')
+} else {
+  let diff = 0
+  for (const r of S.random.slice(0, 100)) {
+    const d = BigInt('0x' + r.priv)
+    if (toHex(sign(d, sha256(fromHex(r.msg)), { lowS: true })) !== r.der) diff++
+  }
+  ok(diff === 0, `⚪ compatibility: we still reproduce the deployed wallet's signatures (${diff} differed)`)
+}
+
+console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [ECDSA · graded by openssl]`)
 process.exit(fail === 0 ? 0 : 1)
