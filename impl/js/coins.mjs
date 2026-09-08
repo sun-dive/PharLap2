@@ -17,6 +17,7 @@
  * never confirms, with nothing in it to say why.
  */
 import { varint, Tx } from './transaction.mjs'
+import { toHex } from './bytes.mjs'
 
 /**
  * ⛔⛔⛔ BTC's NUMBER, AND IT DOES NOT APPLY TO BSV. Named for its PROVENANCE, not any authority here.
@@ -58,7 +59,9 @@ export function select(utxos, outputs, changeScript = null, satPerKb = SAT_PER_K
   const buckets = new Map()
   for (const u of utxos) {
     if (!(u.value > 0)) throw new Error('a UTXO must carry a positive value')
-    const k = u.script.toString('hex')
+    // ⚠ a map KEY, not display. `Uint8Array.toString('hex')` returns comma-separated decimals
+    //   and would still have grouped correctly — wrong, and invisible to every test.
+    const k = toHex(u.script)
     if (!buckets.has(k)) buckets.set(k, [])
     buckets.get(k).push(u)
   }
@@ -96,7 +99,7 @@ export function select(utxos, outputs, changeScript = null, satPerKb = SAT_PER_K
 /** ⚠ Change is appended LAST, and inputs are UNSIGNED — signing is a separate, later step. */
 export function build(sel, outputs, changeScript = null, locktime = 0) {
   const tx = new Tx(1, [], [], locktime)
-  for (const u of sel.inputs) tx.inputs.push({ txid: u.txid, vout: u.vout, script: Buffer.alloc(0), sequence: 0xffffffff })
+  for (const u of sel.inputs) tx.inputs.push({ txid: u.txid, vout: u.vout, script: new Uint8Array(0), sequence: 0xffffffff })
   for (const o of outputs) tx.outputs.push({ value: o.value, script: o.script })
   if (sel.change !== null) tx.outputs.push({ value: sel.change, script: changeScript })
   return tx

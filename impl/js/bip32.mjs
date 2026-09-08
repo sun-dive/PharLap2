@@ -4,21 +4,23 @@
  * Answerable to `vectors/bip32.json`, which was sealed from the BIP's published test vectors before
  * either implementation existed. ⇒ The target was not defined by this code.
  */
-import { createHash, createHmac } from 'node:crypto'
+import { sha256 } from '@noble/hashes/sha2.js'
+import { sha512 } from '@noble/hashes/sha2.js'
+import { ripemd160 } from '@noble/hashes/legacy.js'
+import { hmac } from '@noble/hashes/hmac.js'
 import { G, N, add, mul, serP, ser32, ser256 } from './secp256k1.mjs'
+import { concat, fromHex, fromUtf8, toBigBE } from './bytes.mjs'
 
-const XPRV = Buffer.from('0488ade4', 'hex')
-const XPUB = Buffer.from('0488b21e', 'hex')
+const XPRV = fromHex('0488ade4')
+const XPUB = fromHex('0488b21e')
 const HARDENED = 0x80000000
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-const sha256 = b => createHash('sha256').update(b).digest()
 
-export const hash160 = b =>
-  createHash('ripemd160').update(sha256(b)).digest()
+export const hash160 = b => ripemd160(sha256(b))
 
 export function b58check(payload) {
-  const raw = Buffer.concat([payload, sha256(sha256(payload)).subarray(0, 4)])
+  const raw = concat(payload, sha256(sha256(payload)).subarray(0, 4))
   let n = 0n
   for (const byte of raw) n = n * 256n + BigInt(byte)
   let out = ''
@@ -34,7 +36,7 @@ export function b58check(payload) {
 }
 
 export class Node {
-  constructor(k, K, chain, depth = 0, parentFp = Buffer.alloc(4), index = 0) {
+  constructor(k, K, chain, depth = 0, parentFp = new Uint8Array(4), index = 0) {
     this.k = k                                  // BigInt, or null for a watch-only node
     this.K = K ?? mul(k)
     this.chain = chain
@@ -44,9 +46,9 @@ export class Node {
   }
 
   #ser(version, key) {
-    return b58check(Buffer.concat([
-      version, Buffer.from([this.depth]), this.parentFp, ser32(this.index), this.chain, key,
-    ]))
+    return b58check(concat(
+      version, Uint8Array.of(this.depth), this.parentFp, ser32(this.index), this.chain, key,
+    ))
   }
 
   xpub() { return this.#ser(XPUB, serP(this.K)) }
@@ -54,7 +56,7 @@ export class Node {
   xprv() {
     if (this.k === null) throw new Error('no private key in this node')
     /* ⚠ 0x00 prefix, so the key field is 33 bytes like a compressed point */
-    return this.#ser(XPRV, Buffer.concat([Buffer.alloc(1), ser256(this.k)]))
+    return this.#ser(XPRV, concat(new Uint8Array(1), ser256(this.k)))
   }
 
   fingerprint() { return hash160(serP(this.K)).subarray(0, 4) }
@@ -64,13 +66,13 @@ export class Node {
     let data
     if (hardened) {
       if (this.k === null) throw new Error('a hardened child needs the private key')
-      data = Buffer.concat([Buffer.alloc(1), ser256(this.k), ser32(index)])
+      data = concat(new Uint8Array(1), ser256(this.k), ser32(index))
     } else {
-      data = Buffer.concat([serP(this.K), ser32(index)])
+      data = concat(serP(this.K), ser32(index))
     }
 
-    const I = createHmac('sha512', this.chain).update(data).digest()
-    const IL = BigInt('0x' + I.subarray(0, 32).toString('hex'))
+    const I = hmac(sha512, this.chain, data)
+    const IL = toBigBE(I.subarray(0, 32))
     const IR = I.subarray(32)
 
     /* ⚠⚠ THE CASE NOBODY WILL EVER SEE. The BIP says: if IL >= n, or the resulting key is zero, the
@@ -105,8 +107,10 @@ export class Node {
 }
 
 export function fromSeed(seed) {
-  const I = createHmac('sha512', 'Bitcoin seed').update(seed).digest()
-  const IL = BigInt('0x' + I.subarray(0, 32).toString('hex'))
+  // ⚠ The curve is named IN the HMAC key. A different string derives another wallet's keys —
+  //   valid, verifiable, and nobody else's.
+  const I = hmac(sha512, fromUtf8('Bitcoin seed'), seed)
+  const IL = toBigBE(I.subarray(0, 32))
   if (IL === 0n || IL >= N) {
     /* ⚠ the BIP says the seed is invalid and another should be chosen — not silently clamped */
     throw new Error('invalid seed: the master key is out of range')

@@ -12,25 +12,26 @@
  *   `41000000` like any other type. ⇒ Which is why BIP-143's own vectors, with FORKID clear, grade
  *   this layout end to end.
  */
-import { createHash } from 'node:crypto'
+import { sha256 } from '@noble/hashes/sha2.js'
+import { concat, fromHex, toHex, reversed, readU16LE, readU32LE, readU64LE, u16LE, u32LE, u64LE } from './bytes.mjs'
 
-const dsha256 = b => createHash('sha256').update(createHash('sha256').update(b).digest()).digest()
+const dsha256 = b => sha256(sha256(b))
 export { dsha256 }
 
 export function varint(n) {
   if (n < 0) throw new Error('a length cannot be negative')
-  if (n < 0xfd) return Buffer.from([n])
-  if (n <= 0xffff) { const b = Buffer.alloc(3); b[0] = 0xfd; b.writeUInt16LE(n, 1); return b }
-  if (n <= 0xffffffff) { const b = Buffer.alloc(5); b[0] = 0xfe; b.writeUInt32LE(n, 1); return b }
-  const b = Buffer.alloc(9); b[0] = 0xff; b.writeBigUInt64LE(BigInt(n), 1); return b
+  if (n < 0xfd) return Uint8Array.of(n)
+  if (n <= 0xffff) return concat(Uint8Array.of(0xfd), u16LE(n))
+  if (n <= 0xffffffff) return concat(Uint8Array.of(0xfe), u32LE(n))
+  return concat(Uint8Array.of(0xff), u64LE(BigInt(n)))
 }
 export function readVarint(b, o) {
   if (o >= b.length) throw new Error(`varint runs past the end at offset ${o}`)
   const f = b[o]
   if (f < 0xfd) return [f, o + 1]
-  if (f === 0xfd) return [b.readUInt16LE(o + 1), o + 3]
-  if (f === 0xfe) return [b.readUInt32LE(o + 1), o + 5]
-  return [Number(b.readBigUInt64LE(o + 1)), o + 9]
+  if (f === 0xfd) return [readU16LE(b, o + 1), o + 3]
+  if (f === 0xfe) return [readU32LE(b, o + 1), o + 5]
+  return [Number(readU64LE(b, o + 1)), o + 9]
 }
 const need = (b, o, n) => { if (o + n > b.length) throw new Error(`need ${n} bytes at offset ${o}; the data ends first`) }
 
@@ -40,27 +41,27 @@ export class Tx {
   }
 
   static parse(raw) {
-    const b = Buffer.isBuffer(raw) ? raw : Buffer.from(raw, 'hex')
+    const b = typeof raw === 'string' ? fromHex(raw) : raw
     need(b, 0, 4)
-    const tx = new Tx(b.readUInt32LE(0)); let o = 4, n
+    const tx = new Tx(readU32LE(b, 0)); let o = 4, n
     ;[n, o] = readVarint(b, o)
     for (let i = 0; i < n; i++) {
-      need(b, o, 36); const txid = b.subarray(o, o + 32); const vout = b.readUInt32LE(o + 32); o += 36
+      need(b, o, 36); const txid = b.subarray(o, o + 32); const vout = readU32LE(b, o + 32); o += 36
       let len; [len, o] = readVarint(b, o)
       need(b, o, len + 4)
-      tx.inputs.push({ txid, vout, script: b.subarray(o, o + len), sequence: b.readUInt32LE(o + len) })
+      tx.inputs.push({ txid, vout, script: b.subarray(o, o + len), sequence: readU32LE(b, o + len) })
       o += len + 4
     }
     ;[n, o] = readVarint(b, o)
     for (let i = 0; i < n; i++) {
       need(b, o, 8)
       // ⚠ 8 BYTES, not 4. A 4-byte read is identical below 42.9 BTC and silently wrong above it.
-      const value = Number(b.readBigUInt64LE(o)); o += 8
+      const value = Number(readU64LE(b, o)); o += 8
       let len; [len, o] = readVarint(b, o)
       need(b, o, len)
       tx.outputs.push({ value, script: b.subarray(o, o + len) }); o += len
     }
-    need(b, o, 4); tx.locktime = b.readUInt32LE(o); o += 4
+    need(b, o, 4); tx.locktime = readU32LE(b, o); o += 4
     // ⛔ TRAILING BYTES ARE AN ERROR. A parser that ignores them accepts two different transactions as
     //   the same one, and the txid it reports belongs to neither.
     if (o !== b.length) throw new Error(`${b.length - o} trailing byte(s) after the transaction`)
@@ -68,32 +69,28 @@ export class Tx {
   }
 
   serialize() {
-    const v = Buffer.alloc(4); v.writeUInt32LE(this.version)
-    const parts = [v, varint(this.inputs.length)]
+    const parts = [u32LE(this.version), varint(this.inputs.length)]
     for (const i of this.inputs) {
-      const vo = Buffer.alloc(4); vo.writeUInt32LE(i.vout)
-      const sq = Buffer.alloc(4); sq.writeUInt32LE(i.sequence)
-      parts.push(i.txid, vo, varint(i.script.length), i.script, sq)
+      parts.push(i.txid, u32LE(i.vout), varint(i.script.length), i.script, u32LE(i.sequence))
     }
     parts.push(varint(this.outputs.length))
     for (const ou of this.outputs) {
-      const val = Buffer.alloc(8); val.writeBigUInt64LE(BigInt(ou.value))
-      parts.push(val, varint(ou.script.length), ou.script)
+      parts.push(u64LE(ou.value), varint(ou.script.length), ou.script)
     }
-    const lt = Buffer.alloc(4); lt.writeUInt32LE(this.locktime)
-    parts.push(lt)
-    return Buffer.concat(parts)
+    parts.push(u32LE(this.locktime))
+    return concat(...parts)
   }
 
-  hex() { return this.serialize().toString('hex') }
+  hex() { return toHex(this.serialize()) }
   /** ⚠ The txid a person reads is the hash REVERSED. */
-  txid() { return Buffer.from(dsha256(this.serialize())).reverse().toString('hex') }
+  /** ⚠ The txid a person reads is the hash REVERSED — and `reversed` copies, never mutates. */
+  txid() { return toHex(reversed(dsha256(this.serialize()))) }
   /** ★ 100 sat/KB, never ARC's suggestion. ⚠ Rounded UP: a fee below the floor is a stuck tx. */
   fee(satPerKb = 100) { return Math.ceil(this.serialize().length * satPerKb / 1000) }
 }
 
 export const SIGHASH = { ALL: 0x01, NONE: 0x02, SINGLE: 0x03, FORKID: 0x40, ANYONECANPAY: 0x80, ALL_FORKID: 0x41 }
-const ZERO32 = Buffer.alloc(32)
+const ZERO32 = new Uint8Array(32)
 
 /**
  * @param scriptCode the locking script being spent, RAW — its varint length is added here.
@@ -108,25 +105,23 @@ export function preimage(tx, inputIndex, scriptCode, amount, sighashType = SIGHA
   const acp = (sighashType & SIGHASH.ANYONECANPAY) !== 0
 
   let hashPrevouts = ZERO32, hashSequence = ZERO32, hashOutputs = ZERO32
-  const u32 = n => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b }
-  const u64 = n => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b }
 
   if (!acp) {
-    hashPrevouts = dsha256(Buffer.concat(tx.inputs.flatMap(i => [i.txid, u32(i.vout)])))
+    hashPrevouts = dsha256(concat(...tx.inputs.flatMap(i => [i.txid, u32LE(i.vout)])))
     // ⚠ sequences are committed ONLY for ALL — NONE and SINGLE leave them free to change
     if (base !== SIGHASH.SINGLE && base !== SIGHASH.NONE)
-      hashSequence = dsha256(Buffer.concat(tx.inputs.map(i => u32(i.sequence))))
+      hashSequence = dsha256(concat(...tx.inputs.map(i => u32LE(i.sequence))))
   }
-  const outBytes = o => Buffer.concat([u64(o.value), varint(o.script.length), o.script])
+  const outBytes = o => concat(u64LE(o.value), varint(o.script.length), o.script)
   if (base !== SIGHASH.SINGLE && base !== SIGHASH.NONE)
-    hashOutputs = dsha256(Buffer.concat(tx.outputs.map(outBytes)))
+    hashOutputs = dsha256(concat(...tx.outputs.map(outBytes)))
   else if (base === SIGHASH.SINGLE && tx.outputs[inputIndex])
     // ⛔ past the last output this stays ZEROS, not Bitcoin's legacy uint256(1) bug — BIP-143 fixed it
     hashOutputs = dsha256(outBytes(tx.outputs[inputIndex]))
 
-  return Buffer.concat([u32(tx.version), hashPrevouts, hashSequence, inp.txid, u32(inp.vout),
-    varint(scriptCode.length), scriptCode, u64(amount), u32(inp.sequence), hashOutputs,
-    u32(tx.locktime), u32(sighashType)])
+  return concat(u32LE(tx.version), hashPrevouts, hashSequence, inp.txid, u32LE(inp.vout),
+    varint(scriptCode.length), scriptCode, u64LE(amount), u32LE(inp.sequence), hashOutputs,
+    u32LE(tx.locktime), u32LE(sighashType))
 }
 
 export const sighash = (...a) => dsha256(preimage(...a))

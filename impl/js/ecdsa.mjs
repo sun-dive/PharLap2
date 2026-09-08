@@ -17,21 +17,16 @@
  *   ⇒ Scalar blinding below decorrelates timing without pretending to solve it. **For anything
  *   material, sign air-gapped.**
  */
-import { N, G, mul, add, serP } from './secp256k1.mjs'
-import { makeRfc6979 } from './rfc6979.mjs'
+import { N, P, G, mul, add, serP } from './secp256k1.mjs'
+import { rfc6979k } from './rfc6979.mjs'
+import { concat, beBytes, toBigBE } from './bytes.mjs'
 
-const P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn
 const mod = (a, m) => ((a % m) + m) % m
 const modPow = (b, e, m) => { let r = 1n; b = mod(b, m); while (e > 0n) { if (e & 1n) r = (r * b) % m; b = (b * b) % m; e >>= 1n } return r }
 const invN = a => modPow(mod(a, N), N - 2n, N)
 
-const beBytes = (n, len) => {
-  const out = Buffer.alloc(len)
-  for (let i = len - 1; i >= 0; i--) { out[i] = Number(n & 0xffn); n >>= 8n }
-  if (n !== 0n) throw new RangeError(`does not fit in ${len} bytes`)
-  return out
-}
-const toBig = b => (b.length ? BigInt('0x' + Buffer.from(b).toString('hex')) : 0n)
+/* ⚠ `beBytes` and `toBigBE` live in bytes.mjs — one copy of the left-padding rule, not three. */
+const toBig = toBigBE
 
 /**
  * ★ Scalar blinding: `(k + b·n)·P == k·P` because `n·P` is the point at infinity.
@@ -41,27 +36,28 @@ const toBig = b => (b.length ? BigInt('0x' + Buffer.from(b).toString('hex')) : 0
 function mulBlinded(k, pt = G, rand) {
   k = mod(k, N)
   if (k === 0n) return null
-  const b = rand ? toBig(rand(8)) : 0n
+  const b = rand ? toBigBE(rand(8)) : 0n
   return mul(k + b * N, pt)
 }
 
 export function publicKey(d, compressed = true) {
   const pt = mul(mod(d, N), G)
   if (pt === null) throw new Error('private key out of range')
-  return compressed ? serP(pt) : Buffer.concat([Buffer.from([0x04]), beBytes(pt.x, 32), beBytes(pt.y, 32)])
+  return compressed ? serP(pt) : concat(Uint8Array.of(0x04), beBytes(pt.x, 32), beBytes(pt.y, 32))
 }
 
 /** ⚠ DER INTEGERs are SIGNED: a high top bit needs a `0x00` in front or the value reads negative. */
 function derInt(v) {
   let b = beBytes(v, 32)
-  b = b.subarray(b.findIndex(x => x !== 0) === -1 ? 31 : b.findIndex(x => x !== 0))
-  if (b[0] & 0x80) b = Buffer.concat([Buffer.from([0x00]), b])
-  return Buffer.concat([Buffer.from([0x02, b.length]), b])
+  const first = b.findIndex(x => x !== 0)
+  b = b.subarray(first === -1 ? 31 : first)
+  if (b[0] & 0x80) b = concat(Uint8Array.of(0x00), b)      // ⚠ DER INTEGERs are SIGNED
+  return concat(Uint8Array.of(0x02, b.length), b)
 }
 
 export function encodeDer(r, s) {
-  const body = Buffer.concat([derInt(r), derInt(s)])
-  return Buffer.concat([Buffer.from([0x30, body.length]), body])
+  const body = concat(derInt(r), derInt(s))
+  return concat(Uint8Array.of(0x30, body.length), body)
 }
 
 /**
@@ -70,7 +66,7 @@ export function encodeDer(r, s) {
  * @returns {[bigint, bigint] | null}
  */
 export function decodeDer(sig, allowTrailing = false) {
-  const b = Buffer.from(sig)
+  const b = sig
   if (b.length < 8 || b[0] !== 0x30) return null
   const len = b[1]
   if (len & 0x80) return null                                  // ⛔ long-form length is BER, not DER
@@ -98,15 +94,15 @@ export function decodeDer(sig, allowTrailing = false) {
  * the caller's explicit responsibility.
  * @param {bigint} d
  * @param {Uint8Array} digest32
- * @param {{lowS?: boolean, hmac: Function, rand?: Function}} opts
+ * @param {{lowS?: boolean, rand?: Function}} opts
+ * ⚠ The HMAC used to be injected. `@noble/hashes` is synchronous and bundles for a browser, so the
+ *   hook had no remaining purpose and is gone rather than left unused.
  */
-export function sign(d, digest32, { lowS = false, hmac, rand } = {}) {
+export function sign(d, digest32, { lowS = false, rand } = {}) {
   if (digest32.length !== 32) throw new Error('a digest is 32 bytes')
-  if (typeof hmac !== 'function') throw new Error('an hmac implementation is required — see rfc6979.mjs')
-  const k6979 = makeRfc6979(hmac)
   const z = toBig(digest32)
   for (let attempt = 0; attempt < 64; attempt++) {
-    const k = k6979(N, mod(d, N), digest32, attempt)
+    const k = rfc6979k(N, mod(d, N), digest32, attempt)
     const pt = mulBlinded(k, G, rand)
     if (pt === null) continue
     const r = mod(pt.x, N)
@@ -138,7 +134,7 @@ export function verifyDigest(sig, pub, digest32, allowTrailing = false) {
 
 /** SEC1 point decoding, compressed or uncompressed. */
 export function decodePoint(pub) {
-  const b = Buffer.from(pub)
+  const b = pub
   if (b.length === 33 && (b[0] === 0x02 || b[0] === 0x03)) {
     const x = toBig(b.subarray(1))
     if (x >= P) return null

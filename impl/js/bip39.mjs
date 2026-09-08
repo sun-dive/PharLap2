@@ -20,16 +20,15 @@
  * ⚠⚠ `pbkdf2` is INJECTED — Node has a sync one; the browser's WebCrypto is async. Same reason as
  * `rfc6979.mjs`: the choice stays visible rather than being made silently.
  */
-import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, join } from 'node:path'
+import { sha256, sha512 } from '@noble/hashes/sha2.js'
+import { pbkdf2 } from '@noble/hashes/pbkdf2.js'
+import { WORDLIST_ENGLISH } from './data/wordlist-english.mjs'
+import { fromUtf8 } from './bytes.mjs'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
 let WORDS = null
 export function words() {
   if (WORDS) return WORDS
-  WORDS = readFileSync(join(HERE, 'data', 'bip39-english.txt'), 'utf8').split('\n').filter(Boolean)
+  WORDS = WORDLIST_ENGLISH
   if (WORDS.length !== 2048) throw new Error('wordlist must be exactly 2048 words')
   return WORDS
 }
@@ -57,7 +56,7 @@ export function fromEntropy(entropy) {
   const n = entropy.length * 8
   if (!VALID_BITS.includes(n)) throw new Error(`entropy must be 16,20,24,28 or 32 bytes; got ${entropy.length}`)
   // ★ THE CHECKSUM: first ENT/32 bits of sha256(entropy). It is what makes a mistyped word detectable.
-  const bin = bits(entropy) + bits(createHash('sha256').update(entropy).digest()).slice(0, n / 32)
+  const bin = bits(entropy) + bits(sha256(entropy)).slice(0, n / 32)
   const w = words()
   return (bin.match(/.{11}/g) || []).map(c => w[parseInt(c, 2)]).join(' ')
 }
@@ -75,8 +74,8 @@ export function toEntropy(mnemonic) {
     bin += i.toString(2).padStart(11, '0')
   }
   const entBits = Math.floor(parts.length * 11 * 32 / 33)
-  const entropy = Buffer.from((bin.slice(0, entBits).match(/.{8}/g) || []).map(b => parseInt(b, 2)))
-  const want = bits(createHash('sha256').update(entropy).digest()).slice(0, parts.length * 11 - entBits)
+  const entropy = Uint8Array.from((bin.slice(0, entBits).match(/.{8}/g) || []).map(b => parseInt(b, 2)))
+  const want = bits(sha256(entropy)).slice(0, parts.length * 11 - entBits)
   if (bin.slice(entBits) !== want)
     throw new Error('checksum does not match — a word is wrong or in the wrong place')
   return entropy
@@ -91,13 +90,10 @@ export const isValid = m => { try { toEntropy(m); return true } catch { return f
  * ★ The passphrase is a 25th word in effect: a different one is a different wallet, with nothing in the
  *   mnemonic to say another exists.
  */
-export function toSeed(mnemonic, passphrase = '', pbkdf2) {
-  if (typeof pbkdf2 !== 'function') throw new Error('a pbkdf2 implementation is required')
-  return pbkdf2(nfkd(mnemonic, 'mnemonic'), 'mnemonic' + nfkd(passphrase, 'passphrase'), 2048, 64)
+export function toSeed(mnemonic, passphrase = '') {
+  // ⚠ 2048 iterations and a 64-byte output are BIP-39's numbers. Weak by modern standards, and
+  //   changing either breaks compatibility with every wallet in existence — a documented trade.
+  return pbkdf2(sha512, fromUtf8(nfkd(mnemonic, 'mnemonic')),
+                fromUtf8('mnemonic' + nfkd(passphrase, 'passphrase')), { c: 2048, dkLen: 64 })
 }
 
-/** Node's PBKDF2. ⚠ A browser build supplies its own — WebCrypto's is async. */
-export async function nodePbkdf2() {
-  const { pbkdf2Sync } = await import('node:crypto')
-  return (pw, salt, iters, len) => pbkdf2Sync(Buffer.from(pw, 'utf8'), Buffer.from(salt, 'utf8'), iters, len, 'sha512')
-}

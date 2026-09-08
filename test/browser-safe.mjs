@@ -1,0 +1,116 @@
+// © 2026 sun-dive.
+/**
+ * ★★★ THE WALLET IS BROWSER-ONLY. This proves it, on every run.
+ *
+ * ⚠⚠ THIS CHECK EXISTS BECAUSE THE FAILURE IS INVISIBLE UNTIL IT ISN'T. Two different things go wrong,
+ *   and only one of them announces itself:
+ *
+ *   | `import … from 'node:crypto'` | ⛔ esbuild REFUSES it — a loud build error |
+ *   | `Buffer` | ⚠⚠ **bundles perfectly**, then is `undefined` in the browser — a runtime failure, on a user's machine, in code that built clean |
+ *
+ *   ⇒ The second is the dangerous one, so this check does not stop at "did it build". It builds, then
+ *     **reads the output** for anything that only exists in Node.
+ *
+ * ★ `Buffer` is a hangover from the dependency this project removed, not a target. Node is used for the
+ *   vector harness and for tooling; **it is never used by the wallet.** `impl/` must therefore be clean.
+ *
+ *   node test/browser-safe.mjs
+ */
+import { build } from 'esbuild'
+import { readFileSync, readdirSync, rmSync, mkdtempSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const IMPL = join(ROOT, 'impl', 'js')
+
+let pass = 0, fail = 0
+const ok = (c, what) => { c ? pass++ : (fail++, console.log(`  ✗ ${what}`)) }
+
+/** ⚠ Node-only globals. Each one bundles silently and fails at runtime. */
+const NODE_ONLY = [
+  [/\bBuffer\b/, 'Buffer', 'use Uint8Array — Buffer does not exist in a browser'],
+  [/\bprocess\.[a-z]/i, 'process.*', 'not defined in a browser'],
+  [/\b__dirname\b|\b__filename\b/, '__dirname/__filename', 'CommonJS only'],
+  [/\brequire\s*\(/, 'require()', 'not defined in an ES module in a browser'],
+  [/\bglobal\b(?!This)/, 'global', 'the browser spells it globalThis'],
+]
+
+const modules = readdirSync(IMPL).filter(f => f.endsWith('.mjs')).sort()
+console.log(`── ${modules.length} modules under impl/js, each bundled for a browser ──`)
+
+const tmp = mkdtempSync(join(tmpdir(), 'browsersafe-'))
+for (const m of modules) {
+  const out = join(tmp, m.replace('.mjs', '.js'))
+  let built = true, err = ''
+  try {
+    // ⚠ platform:'browser' is the point — it REFUSES node: builtins rather than shimming them.
+    await build({ entryPoints: [join(IMPL, m)], bundle: true, outfile: out,
+                  platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  } catch (e) { built = false; err = String(e.message ?? e).split('\n').find(l => l.includes('ERROR')) ?? String(e).slice(0, 120) }
+  if (!built) { ok(false, `${m} — does not bundle: ${err}`); continue }
+
+  const src = readFileSync(out, 'utf8')
+  const hits = NODE_ONLY.filter(([re]) => re.test(src)).map(([, name, why]) => `${name} (${why})`)
+  ok(hits.length === 0, `${m} — bundles, but the output still needs: ${hits.join('; ')}`)
+}
+
+// ── ⛔ THE SILENT ONE: `.toString('hex')` on a Uint8Array ────────────────────────────────────────────
+//
+// ⚠⚠⚠ `Buffer.toString('hex')` returns hex. **`Uint8Array.toString('hex')` IGNORES THE ARGUMENT** and
+//   returns comma-separated decimals — `"232,243,46,…"`. No error, no warning.
+//   ⇒ Caught once by the sealed BIP-32 vectors, which threw only because the result was fed to
+//     `BigInt('0x…')`. **Anywhere else it produces a plausible wrong string** — a txid, a script, a key
+//     — that travels a long way before failing. ⇒ Since impl/ is Uint8Array throughout, this call is
+//     never correct here, so it is a static error rather than something a vector has to notice.
+console.log('\n── ⛔ no .toString(\'hex\') on a Uint8Array ──')
+const { readFileSync: rf } = await import('node:fs')
+const offenders = []
+for (const m of modules) {
+  const src = rf(join(IMPL, m), 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+  const n = (src.match(/\.toString\(\s*['"]hex['"]\s*\)/g) ?? []).length
+  if (n > 0) offenders.push(`${m} (${n})`)
+}
+ok(offenders.length === 0, `⛔ .toString('hex') found — use toHex() from bytes.mjs: ${offenders.join(', ')}`)
+
+// ── ⛔ UNDEFINED FREE VARIABLES — the gap this check had ─────────────────────────────────────────────
+//
+// ⚠⚠⚠ THIS CHECK ONCE REPORTED 12/12 ON A BROKEN MODULE. A `readFileSync(...)` call survived an edit
+//   while its import did not. esbuild does not mind: an unresolved identifier is not a bundling error,
+//   so the module built clean and failed the moment it ran. ⇒ Scanning for KNOWN Node globals could
+//   never have caught it, because the name was not on any list.
+//   ⚠⚠ AND THE OBVIOUS FIX DOES NOT WORK, which is worth recording so nobody trusts it: importing each
+//     module catches an undefined name at TOP LEVEL, but the one that got through was inside a lazily
+//     called function, so the import succeeds and the module is still broken. **Measured: with the bug
+//     planted, this file reported 21/21 while `test/bip39.mjs` threw immediately.**
+//
+//   ★★★ SO THE BOUNDARY IS: this file proves the modules BUNDLE for a browser and carry no Node global.
+//     Proving they RUN is the job of the per-module suites, because only calling a function executes
+//     it. ⇒ `npm test` runs both, and neither alone is sufficient.
+console.log('\n── ⛔ every module actually loads ──')
+for (const m of modules) {
+  let loaded = true, why = ''
+  try { await import(join(IMPL, m)) } catch (e) { loaded = false; why = String(e.message ?? e).split('\n')[0].slice(0, 90) }
+  ok(loaded, `${m} — bundles but does not LOAD: ${why}`)
+}
+
+// ── ⚠ the anti-vacuous guard ────────────────────────────────────────────────────────────────────────
+// A check that would pass on an empty directory is not a check.
+ok(modules.length >= 5, `★ and there are really ${modules.length} modules to check, not zero`)
+
+// ── ⛔ and prove the check can FAIL, by feeding it something that should be rejected ─────────────────
+const bad = join(tmp, 'deliberately-bad.mjs')
+const { writeFileSync } = await import('node:fs')
+writeFileSync(bad, "export const x = Buffer.from('ab', 'hex')\n")
+let caught = false
+try {
+  await build({ entryPoints: [bad], bundle: true, outfile: join(tmp, 'bad.js'),
+                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  caught = /\bBuffer\b/.test(readFileSync(join(tmp, 'bad.js'), 'utf8'))
+} catch { caught = true }
+ok(caught, '⛔ a file using Buffer IS detected — the check discriminates rather than always passing')
+
+rmSync(tmp, { recursive: true, force: true })
+console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [browser-safe · impl/js has no Node dependency]`)
+process.exit(fail === 0 ? 0 : 1)

@@ -1,0 +1,22 @@
+{
+  "name": "pharlap2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Phar Lap 2 \u2014 the wallet, and tack, the core it is mounted on",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test/browser-safe.mjs && node test/rfc6979.mjs && node test/ecdsa.mjs && node test/address.mjs && node test/transaction.mjs && node test/coins.mjs && node test/bip39.mjs && node runner/js/run.mjs && python3 runner/python/run.py",
+    "check:browser": "node test/browser-safe.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.21.5",
+    "typescript": "5.6.3",
+    "@types/node": "22.10.2"
+  }
+}

@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 node_modules/
 .DS_Store
+
+# ⚠⚠ TEST DATA STAYS LOCAL. These are vectors copied in from elsewhere to grade the wallet core.
+#   They are not this repository's to publish, and one of them is 237 KB. Each suite SKIPS loudly
+#   when its vectors are absent rather than quietly passing.
+test/*-vectors.json

@@ -16,6 +16,8 @@
  * guard money. When Phar Lap 2 signs, it uses a real library.
  */
 
+import { concat, beBytes } from './bytes.mjs'
+
 export const P  = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn
 export const N  = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n
 const Gx = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n
@@ -65,16 +67,11 @@ export function mul(k, p = G) {
   return r
 }
 
-/** big-endian, LEFT-PADDED to `len`. ⚠ See serP/ser256 below for why the padding is the whole point. */
-function beBytes(n, len) {
-  const out = Buffer.alloc(len)
-  for (let i = len - 1; i >= 0; i--) { out[i] = Number(n & 0xffn); n >>= 8n }
-  if (n !== 0n) throw new RangeError(`does not fit in ${len} bytes`)
-  return out
-}
+/* ⚠ `beBytes` lives in `bytes.mjs`. Two copies of a left-padding routine is two chances to drop the
+   padding, and BIP-32 breaks silently when that happens — see ser256 below. */
 
 /** SEC1 compressed: 0x02 if y is even, 0x03 if odd, then x as 32 bytes. */
-export const serP = pt => Buffer.concat([Buffer.from([2 + Number(pt.y & 1n)]), beBytes(pt.x, 32)])
+export const serP = pt => concat(Uint8Array.of(2 + Number(pt.y & 1n)), beBytes(pt.x, 32))
 
 /**
  * ⚠⚠ ALWAYS 32 BYTES. THIS IS WHAT "RETENTION OF LEADING ZEROS" MEANS IN BIP-32.
