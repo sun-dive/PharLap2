@@ -98,14 +98,21 @@ language's default sort than under UTF-8 byte order, **so it fails if either sid
 
 **MIT.** ⚠⚠ **Not Open BSV, and that is not a matter of taste.** Open BSV's clause 2 restricts every
 derivative to the BSV Blockchain — so a core under those terms **could not be used on jetmora**, which
-is the entire reason it exists. ⇒ The same trap `@bsv/sdk` turned out to be, and it would be worse to
-walk into it deliberately.
+is the entire reason this exists. ⇒ A field-of-use restriction is easy to accept without noticing and
+expensive to discover later, and it is worse to walk into one deliberately.
 
 ## What it is built from
 
-Verified 26 Aug 2026 **by reading the files**: bitcoinX (MIT) · electrumsv-secp256k1 (MIT/Apache-2.0) ·
-ElectrumSV (MIT since January 2024). ⚠ **ElectrumSVP is not usable** (mixed / Open BSV), and **nothing
-derived from `@bsv/sdk` may be used off the BSV Blockchain** — its clause 2 restricts every derivative,
-which is why jetmora needs this at all.
+**Nothing.** Zero runtime dependencies, and no third-party source code — every line under `impl/` and
+`runner/` was written for this repo, from the published specifications, against those specifications'
+own test vectors.
 
-⇒ Design: `~/Documents/wallet-core-spec.md`.
+⚠ That is a claim, so it is evidenced rather than asserted: **`PROVENANCE.md`** records the method, the
+controls that show the method discriminates, the one third-party *data* file (BIP-39's official English
+wordlist, verified byte-identical), and the two marker sets that could not be proven locally — reported
+as unproven rather than as a pass.
+
+★ The libraries that were **read** are listed there too, because reading a published implementation and
+writing your own is not derivation, and the distinction only means something if you say which you did.
+
+⇒ Design: `~/Documents/tack-spec.md` · changes from Phar Lap 1: `WHAT-CHANGED.md`.
