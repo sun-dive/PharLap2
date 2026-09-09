@@ -20,21 +20,7 @@
  * recovered from the template output via `pushDrop.decode`, not stored as a field.
  */
 import { LockingScript } from '../impl/js/script.mjs'
-import { fromHex, toHex as bytesToHex, toUtf8 } from '../impl/js/bytes.mjs'
-
-/**
- * ⚠ The seam again: this module speaks `number[]`, the wallet core speaks `Uint8Array`. Three one-line
- *   helpers keep 793 lines of field encoding untouched, and leave one place to change later.
- *
- * ⛔ NAMED FOR WHAT THEY DO, NOT FOR WHAT THEY REPLACED. My first version of this shim copied the
- *   removed library's object name and method names exactly, so the five call sites below would not have
- *   had to change at all. ⇒ That carries its API SHAPE forward, which is precisely what this project
- *   does not do - the same mistake as a compatibility layer wearing its class names, only smaller.
- *   Five renamed call sites is the entire cost of not doing it.
- */
-const hexBytes = (v: string): number[] => Array.from(fromHex(v))
-const hexOf = (b: number[]): string => bytesToHex(Uint8Array.from(b))
-const utf8Of = (b: number[]): string => toUtf8(Uint8Array.from(b))
+import { hexBytes, hexOf, utf8Of } from './bytes.ts'
 import { lock as pushDropLock, decode as pushDropDecode } from './pushDrop.ts'
 
 // ─── Constants ──────────────────────────────────────────────────────

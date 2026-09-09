@@ -15,16 +15,7 @@
  *
  * This module can run in any environment (browser, Node, offline).
  */
-import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js'
-
-/**
- * ⚠ THE ONE SEAM. This module works in `number[]`, as the whole application does; the wallet core works
- *   in `Uint8Array`, because that is what a browser actually speaks. Rather than convert 12,400 lines of
- *   working application code, the conversion lives HERE, at the boundary, in one place.
- * ★ Deliberately not `Array.from(...)` scattered at every call site: one named helper is greppable, and
- *   the day this module moves to `Uint8Array` there is exactly one line to delete.
- */
-const sha256Bytes = (data: number[]): number[] => Array.from(nobleSha256(Uint8Array.from(data)))
+import { sha256Bytes } from './bytes.ts'
 
 // ─── Types ──────────────────────────────────────────────────────────
 

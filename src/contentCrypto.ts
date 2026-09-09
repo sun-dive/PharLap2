@@ -19,7 +19,7 @@
  *
  * For real per-recipient protection you need a live sender (Tier 2) or a watermarking server (Tier 3).
  */
-import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js'
+import { sha256Bytes, randomBytes, hexOf, utf8Bytes } from './bytes.ts'
 
 /**
  * ⚠⚠⚠ THE CIPHERTEXT FRAMING IS FIXED BY WHAT IS ALREADY ON CHAIN: `[32-byte IV][ciphertext][16-byte
@@ -50,10 +50,6 @@ const AES = 'AES-GCM'
 /** ⚠ 32, not 12. See the framing note above - this is not a choice, it is what the chain holds. */
 const IV_BYTES = 32
 
-const sha256Bytes = (data: number[]): number[] => Array.from(nobleSha256(Uint8Array.from(data)))
-const randomBytes = (n: number): number[] => Array.from(crypto.getRandomValues(new Uint8Array(n)))
-const toHex = (b: number[]): string => b.map(x => x.toString(16).padStart(2, '0')).join('')
-const utf8 = (s: string): number[] => Array.from(new TextEncoder().encode(s))
 
 /** ⚠ `false` for extractable: the key must not be exportable once imported. */
 const importKey = (K: number[], use: KeyUsage): Promise<CryptoKey> =>
@@ -80,7 +76,7 @@ async function gcmDecrypt (K: number[], packed: number[]): Promise<number[]> {
 }
 
 /** Constant baked into the wallet — PUBLIC (this is open source). Obfuscation only, not a secret. */
-const OBFUSCATION_SALT = utf8('PHARLAP/tier1/content-key/v1')
+const OBFUSCATION_SALT = utf8Bytes('PHARLAP/tier1/content-key/v1')
 
 /** Generate a fresh 32-byte content key K. */
 export function newContentKey(): number[] {
@@ -128,5 +124,5 @@ export async function unwrapContentKey(wrappedK: number[], keySalt: number[]): P
 
 /** SHA-256 of the (encrypted) bytes, hex — binds the ciphertext to the collection identity (template fileHash). */
 export function contentHash(ciphertext: number[]): string {
-  return toHex(sha256Bytes(ciphertext))
+  return hexOf(sha256Bytes(ciphertext))
 }
