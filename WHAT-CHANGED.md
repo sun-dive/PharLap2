@@ -19,32 +19,38 @@ the patent grant MIT does not have.
 
 ## 2 · What was removed
 
-The wallet SDK dependency — imported by **26 of 40 source files** in Phar Lap 1, across 19 distinct symbols.
+A wallet library Phar Lap 1 depended on. ⚠ Measured 9 Sept 2026: it is referenced by only **659 of the
+application's 12,400 lines — 5%**, which is the useful number, because it says the work was never mostly
+about replacing it.
 
 ⚠ Phar Lap 1 is **untouched and still runs.** It remains the reference to diff against.
 
 ## 3 · What replaces it
 
-| removed | uses | replaced by | status |
-|---|---|---|---|
-| `Transaction` | 15 | `impl/js/transaction.mjs` — serialize · parse · txid · fee | ✅ graded by BIP-143's own vectors |
-| `P2PKH` | 12 | `impl/js/address.mjs` | ✅ |
-| `SatoshisPerKilobyte` | 10 | `impl/js/coins.mjs` — 100 sat/KB, rounded **up** | ✅ |
-| `PublicKey` · `PrivateKey` | 12 | `impl/js/ecdsa.mjs` · `impl/js/address.mjs` (WIF) | ✅ |
-| `Hash` | 5 | the platform's SHA-256, **injected** — see §6 | ✅ |
-| `Curve` · `BigNumber` | 2 | `impl/js/secp256k1.mjs`, on native `BigInt` | ✅ |
-| `HD` | 1 | `impl/js/bip32.mjs` | ✅ graded by BIP-32's vectors |
-| `Mnemonic` | 1 | `impl/js/bip39.mjs` | ✅ graded by BIP-39's vectors |
-| `TransactionSignature` | 1 | `impl/js/transaction.mjs` — BIP-143 preimage + sighash | ✅ |
-| `Utils` | 12 | hex/byte helpers, inline | ✅ trivial |
-| `LockingScript` · `ScriptChunk` · `OP` | 10 | `impl/js/script.mjs` — opcodes, minimal pushes, chunks | ✅ graded by real mainnet scripts |
-| `SymmetricKey` · `Random` | 2 | `src/contentCrypto.ts` — the browser's own AES-GCM | ✅ reads ciphertext already on chain; **424× faster** |
-| `ECIES` | 1 | ⏭ **not yet** — `messageCodec.ts`, `configBackup.ts` | **OPEN** |
-| `MerklePath` (via the wallet provider) | — | `src/walletProvider.ts` — the deployed file, **adapted not rewritten** | ✅ two independent proof sources |
+| module | covers | graded by |
+|---|---|---|
+| `impl/js/secp256k1.mjs` | the curve, on native `BigInt` | its own published test vectors |
+| `impl/js/ecdsa.mjs` | signing, verifying, strict DER | **openssl**, an implementation with no relationship to this project |
+| `impl/js/rfc6979.mjs` | deterministic nonces | **RFC 6979's own published vectors** |
+| `impl/js/bip32.mjs` · `bip39.mjs` | keys from a phrase | **BIP-32 and BIP-39's own vectors** |
+| `impl/js/address.mjs` | addresses, WIF, locking scripts | round trips against known keys |
+| `impl/js/script.mjs` | opcodes, minimal pushes, chunks | **19 real mainnet scripts**, 25 B to 81 KB |
+| `impl/js/transaction.mjs` | serialize, parse, txid, BIP-143 sighash | **BIP-143's own vectors** |
+| `impl/js/signer.mjs` | unlocking-script assembly | **5 real mainnet spends the network already accepted** |
+| `impl/js/coins.mjs` | selection, fees, change | invariants, and the deployed arithmetic to the satoshi |
+| `impl/js/chain.mjs` | the rate-limited transport | offline, with the transport and clock injected |
+| `src/contentCrypto.ts` | AES-GCM, via the browser's own | **ciphertext already on chain**, and 424× faster |
 
-★★ **The open rows are the honest part of this document.** The core derives keys, selects coins, builds,
-signs, broadcasts and verifies end to end. **It is still not a drop-in replacement**, and the blanks are
-listed so a reader does not have to discover them.
+★ **Where a row says "its own vectors", that is the point.** Nothing here is graded by agreeing with
+another implementation: agreement proves compatibility, never correctness. The oracles are the chain
+itself, the specifications' published vectors, and openssl.
+
+⏭ **Still open: authenticated encryption between two parties**, used by the messaging and
+settings-backup features. Not on the path to sending a payment.
+
+★★ **The open item above is the honest part of this document.** The core derives keys, selects coins,
+builds, signs, broadcasts and verifies end to end. **It is still not a drop-in replacement**, and what is
+missing is stated so a reader does not have to discover it.
 
 ⚠⚠ **AND THE LARGER PART IS NOT IN THIS TABLE AT ALL.** Measured 9 Sept: only **659 of the application's
 12,400 lines** touch the removed library — 5%. The remaining work is not replacing symbols, it is that
