@@ -4,7 +4,7 @@
  *    nor returned has been invented or lost. */
 import * as c from '../impl/js/coins.mjs'
 import { Tx } from '../impl/js/transaction.mjs'
-import { toHex } from '../impl/js/bytes.mjs'
+import { toHex, fromHex } from '../impl/js/bytes.mjs'
 import { sha256 } from '@noble/hashes/sha2.js'
 let pass = 0, fail = 0
 const ok = (x, w) => { x ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
@@ -52,5 +52,39 @@ const partial = keys.some(k =>
 ok(!partial, '★ no chosen script is PARTIALLY spent')
 ok(Math.max(...keys.map(k => sel.inputs.filter(x => toHex(x.script) === k).length)) > 1,
    '★★ …and a multi-coin script really was chosen, so that check is not vacuous')
+
+// ══ applyFee — settling the change on inputs someone else chose ══════════════════════════════════════
+{
+  const mkTx = () => new Tx(1,
+    [{ txid: new Uint8Array(32).fill(1), vout: 0, script: new Uint8Array(0), sequence: 0xffffffff }],
+    [{ value: 1, script: fromHex('76a914' + '11'.repeat(20) + '88ac') },
+     { value: 0, script: fromHex('76a914' + '22'.repeat(20) + '88ac') }], 0)
+
+  const r = c.applyFee(mkTx(), { inputValues: [100000], changeVout: 1, satPerKb: 101 })
+  ok(r.size === 226 && r.fee === 23 && r.change === 99976,
+     `★★ matches the deployed arithmetic exactly: ${r.size} B, fee ${r.fee}, change ${r.change}`)
+
+  // ⚠⚠ IDEMPOTENT, and mutation testing is why this is here. Summing EVERY output as "spent" gives the
+  //   right answer on a first call, because the change output is still 0 - and a wrong one on a second,
+  //   because by then it is not. A single call could never tell the two apart.
+  const tx = mkTx()
+  const a = c.applyFee(tx, { inputValues: [100000], changeVout: 1, satPerKb: 101 })
+  const b = c.applyFee(tx, { inputValues: [100000], changeVout: 1, satPerKb: 101 })
+  ok(a.change === b.change, `★★ calling it twice gives the same change (${a.change} then ${b.change})`)
+
+  // ⛔ under-funding must throw, not build a transaction that can never confirm
+  let msg = ''
+  try { c.applyFee(mkTx(), { inputValues: [10], changeVout: 1, satPerKb: 101 }) } catch (e) { msg = String(e.message) }
+  ok(msg.includes('insufficient funds') && msg.includes('short by'),
+     `⛔ under-funding throws and says by how much (${msg.slice(0, 60)}…)`)
+
+  // ⚠ the estimate has to cover a signature that does not exist yet
+  const cheap = c.applyFee(mkTx(), { inputValues: [100000], unlockingSizes: [0], changeVout: 1, satPerKb: 101 })
+  ok(cheap.fee < r.fee, '⚠ a smaller unlocking estimate pays a smaller fee - so guessing it wrong under-pays')
+  let bad = false
+  try { c.applyFee(mkTx(), { inputValues: [1, 2], changeVout: 1 }) } catch { bad = true }
+  ok(bad, '⛔ a mismatched count of input values is refused')
+}
+
 console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [UTXO selection · invariants]`)
 process.exit(fail === 0 ? 0 : 1)
