@@ -95,6 +95,40 @@ for (const m of modules) {
   ok(loaded, `${m} — bundles but does not LOAD: ${why}`)
 }
 
+// ── ⛔⛔ EVERY IMPORT IN THIS REPOSITORY MUST BE ON THE ALLOWLIST ────────────────────────────────────
+//
+// ⚠⚠ A verbatim copy of the old application — 25 files still importing a wallet library this project
+//   exists to do without — was sitting untracked in the working tree, one careless `git add src/` away
+//   from being published. ⇒ Ignoring the directory would have hidden the problem AND blocked the ported
+//   files later. **The invariant is what wants enforcing, not the directory**: files arrive one at a
+//   time, already clean, and this fails if one is not.
+//
+// ★★★ THIS IS AN ALLOWLIST, NOT A DENYLIST, FOR TWO REASONS.
+//   1 · A denylist has to NAME what it forbids, and the name of that library is not wanted anywhere in
+//       this repository — not even inside the check that rejects it.
+//   2 · It is strictly stronger. A denylist stops one known package; this stops EVERY package that has
+//       not been deliberately admitted, including ones nobody has thought of yet.
+console.log('\n── ⛔ every import is on the allowlist ──')
+/** Bare specifiers this project is allowed to depend on. ⚠ Adding one is a decision, not a formality. */
+const ALLOWED = ['@noble/hashes', 'esbuild']
+const { readdirSync: rd } = await import('node:fs')
+const walk = d => rd(d, { withFileTypes: true }).flatMap(e =>
+  e.name === 'node_modules' || e.name === '.git' ? []
+  : e.isDirectory() ? walk(join(d, e.name))
+  : /\.(mjs|js|ts)$/.test(e.name) ? [join(d, e.name)] : [])
+const strays = []
+for (const f of walk(ROOT)) {
+  const src = readFileSync(f, 'utf8')
+  for (const m of src.matchAll(/(?:from|import|require\s*\()\s*['"]([^'"]+)['"]/g)) {
+    const spec = m[1]
+    // relative paths are this project's own files; `node:` is flagged separately by the bundle checks
+    if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) continue
+    if (ALLOWED.some(a => spec === a || spec.startsWith(a + '/'))) continue
+    strays.push(`${f.slice(ROOT.length + 1)} → ${spec}`)
+  }
+}
+ok(strays.length === 0, `⛔ imports that are not on the allowlist: ${strays.join(', ')}`)
+
 // ── ⚠ the anti-vacuous guard ────────────────────────────────────────────────────────────────────────
 // A check that would pass on an empty directory is not a check.
 ok(modules.length >= 5, `★ and there are really ${modules.length} modules to check, not zero`)
