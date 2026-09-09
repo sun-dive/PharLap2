@@ -37,13 +37,24 @@ The wallet SDK dependency — imported by **26 of 40 source files** in Phar Lap 
 | `Mnemonic` | 1 | `impl/js/bip39.mjs` | ✅ graded by BIP-39's vectors |
 | `TransactionSignature` | 1 | `impl/js/transaction.mjs` — BIP-143 preimage + sighash | ✅ |
 | `Utils` | 12 | hex/byte helpers, inline | ✅ trivial |
-| `LockingScript` · `ScriptChunk` · `OP` | 10 | ⏭ **not yet** — script assembly | **OPEN** |
-| `SymmetricKey` · `ECIES` · `Random` | 3 | ⏭ **not yet** | **OPEN** |
-| `MerklePath` (via the wallet provider) | — | ✅ exists in the sibling PHP wallet; ⏭ **not yet ported to JS** | **OPEN** |
+| `LockingScript` · `ScriptChunk` · `OP` | 10 | `impl/js/script.mjs` — opcodes, minimal pushes, chunks | ✅ graded by real mainnet scripts |
+| `SymmetricKey` · `Random` | 2 | `src/contentCrypto.ts` — the browser's own AES-GCM | ✅ reads ciphertext already on chain; **424× faster** |
+| `ECIES` | 1 | ⏭ **not yet** — `messageCodec.ts`, `configBackup.ts` | **OPEN** |
+| `MerklePath` (via the wallet provider) | — | `src/walletProvider.ts` — the deployed file, **adapted not rewritten** | ✅ two independent proof sources |
 
-★★ **The open rows are the honest part of this document.** Phar Lap 2's core is complete enough to
-derive keys, select coins, build, sign and verify a transaction end to end — **it is not yet a drop-in
-replacement**, and anyone reading this should know which rows are still blank.
+★★ **The open rows are the honest part of this document.** The core derives keys, selects coins, builds,
+signs, broadcasts and verifies end to end. **It is still not a drop-in replacement**, and the blanks are
+listed so a reader does not have to discover them.
+
+⚠⚠ **AND THE LARGER PART IS NOT IN THIS TABLE AT ALL.** Measured 9 Sept: only **659 of the application's
+12,400 lines** touch the removed library — 5%. The remaining work is not replacing symbols, it is that
+transactions were built by a mutable object that filled in its own change and signed itself from
+per-input templates, and here everything is decided before anything is constructed. **That is a change of
+shape, not of names**, and it is the bulk of what is left.
+
+★ **Nothing has been broadcast yet.** Every check in this repository grades against frozen chain data,
+published vectors, openssl, or an injected transport. The first real send is the one none of that
+can stand in for.
 
 ---
 
