@@ -11,7 +11,8 @@
  *   only check that the SHAPES actually meet - a display txid where wire bytes belong, or a missing
  *   script, produces a perfectly well formed transaction that no node will accept.
  */
-import { Provider, ChainHttp, RateLimiter, ChainError, MIN_REQUEST_GAP_MS } from '../impl/js/chain.mjs'
+import { Provider, ChainHttp, RateLimiter, ChainError, MIN_REQUEST_GAP_MS,
+         CONFIRM_POLL_TRIES, CONFIRM_POLL_INTERVAL_MS, GATE_POLL_TRIES, GATE_POLL_INTERVAL_MS } from '../impl/js/chain.mjs'
 import { Signer, txidToWire } from '../impl/js/signer.mjs'
 import { select, build } from '../impl/js/coins.mjs'
 import { Script } from '../impl/js/script.mjs'
@@ -30,13 +31,16 @@ const resp = (body, status = 200, headers = {}) => ({
   status,
   headers: { get: k => headers[k.toLowerCase()] ?? null },
   json: async () => body,
+  text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
 })
 /** records every sleep instead of performing it, so the suite costs no real time */
 const clock = () => { const slept = []; return { slept, sleep: async ms => { slept.push(ms) } } }
 
 const ME = Signer.fromSeed(new Uint8Array(64).fill(3))
 const ADDR = ME.address()
-const BASE = 'https://api.example.test/v1/bsv/main'
+const BASE = 'https://woc.test/v1/bsv/main'
+// ⚠ a genuinely different HOST, so the two relays get their own queues and really do race
+const BANANA = 'https://banana.test/api/v1'
 const row = (hash, pos, value, extra = {}) => ({ tx_hash: hash, tx_pos: pos, value, ...extra })
 // ⚠⚠ ASYMMETRIC ON PURPOSE. My first attempt used 'aa'.repeat(32), which is a PALINDROME: reversing it
 //   is a no-op, so the display-to-wire conversion could not be exercised at all and the check that
@@ -55,7 +59,7 @@ function provider(table, { maxRetries = 3 } = {}) {
     return resp(null, 404)
   }
   const http = new ChainHttp({ fetchImpl, sleep: c.sleep, maxRetries })
-  return { p: new Provider(ADDR, { http, base: BASE }), calls, slept: c.slept, http }
+  return { p: new Provider(ADDR, { http, base: BASE, bananaBase: BANANA }), calls, slept: c.slept, http }
 }
 
 // ── ★ the locking script is DERIVED from the address, and must equal the key's own ───────────────────
@@ -259,6 +263,214 @@ ok(await rejects((async () => new Provider('13q1P3NyDM6J9SNKPaBC7rMQ9NMEabXocoX'
      `★★★ every input of a transaction built from FETCHED rows verifies (${verified}/${tx.inputs.length})`)
   ok(tx.txid().length === 64, `…and it has a txid: ${tx.txid().slice(0, 16)}…`)
   ok(Tx.parse(tx.hex()).hex() === tx.hex(), '★ and the signed transaction round-trips through the parser')
+}
+
+
+// ══ BROADCAST ═══════════════════════════════════════════════════════════════════════════════════════
+
+// a real signed transaction, so the txid is a genuine one rather than a literal
+const bTx = (() => {
+  const u = { txid: txidToWire(A), vout: 0, value: 5000, script: ME.lockingScript() }
+  const t = new Tx(1, [{ txid: u.txid, vout: 0, script: new Uint8Array(0), sequence: 0xffffffff }],
+                      [{ value: 4000, script: ME.lockingScript() }], 0)
+  ME.signP2PKH(t, [u])
+  return { hex: t.hex(), txid: t.txid() }
+})()
+
+// ── ⚠⚠⚠ the txid is OURS, never the relay's echo ────────────────────────────────────────────────────
+{
+  // ⛔ The relay replies 200 with a DIFFERENT txid. An ARC-style relay can do this and then leave the
+  //   transaction in ORPHAN_MEMPOOL, never mining it (arc #1006). We already know the answer.
+  const LIE = 'de'.repeat(32)
+  const { p, calls } = provider([['tx/raw', resp({ txid: LIE })], ['tx/broadcast', resp(null, 500)]])
+  const got = await p.broadcast(bTx.hex)
+  ok(got === bTx.txid, '★★★ the txid is computed from the SIGNED BYTES, not read from the reply')
+  ok(got !== LIE, '⛔ …and the relay’s contradicting echo is ignored entirely')
+  ok(calls.some(c => c.includes('woc.test')) && calls.some(c => c.includes('banana.test')),
+     '★ both relays were tried')
+}
+
+// ── ★ two relays, different body shapes, first acceptance wins ──────────────────────────────────────
+{
+  const bodies = []
+  const c = clock()
+  const fetchImpl = async (url, init) => {
+    bodies.push([url, init?.body])
+    return url.includes('banana.test') ? resp({ ok: true }) : resp('policy', 400)
+  }
+  const http = new ChainHttp({ fetchImpl, sleep: c.sleep })
+  const p = new Provider(ADDR, { http, base: BASE, bananaBase: BANANA })
+  const got = await p.broadcast(bTx.hex)
+  ok(got === bTx.txid, '★★ WoC refusing on POLICY does not stop the broadcast - the permissive miner carries it')
+  const woc = bodies.find(([u]) => u.includes('woc.test'))[1]
+  const ban = bodies.find(([u]) => u.includes('banana.test'))[1]
+  ok(JSON.parse(woc).txhex === bTx.hex, '⚠ WoC is sent { txhex }')
+  ok(JSON.parse(ban).rawtx === bTx.hex, '⚠ BananaBlocks is sent { rawtx } - same bytes, different key')
+  ok(JSON.parse(woc).txhex === JSON.parse(ban).rawtx, '★ …and it is the SAME transaction, so one txid')
+}
+{
+  const { p } = provider([['tx/raw', resp('bad', 400)], ['tx/broadcast', resp('nope', 400)]])
+  ok(await rejects(p.broadcast(bTx.hex), 'rejected by every relay'), '⛔ only ALL refusing is a failure')
+  ok(await rejects(p.broadcast(bTx.hex), 'WoC 400'), '…and the message names each relay and its status')
+}
+{
+  // ⚠⚠ Promise.any, NOT Promise.race: a FAST rejection must not beat a SLOW acceptance.
+  const c = clock()
+  const fetchImpl = async url => url.includes('woc.test')
+    ? resp('instant no', 400)
+    : new Promise(r => setTimeout(() => r(resp({ ok: true })), 20))
+  const http = new ChainHttp({ fetchImpl, sleep: c.sleep })
+  const p = new Provider(ADDR, { http, base: BASE, bananaBase: BANANA })
+  ok(await p.broadcast(bTx.hex) === bTx.txid, '★★ a fast rejection does not beat a slow acceptance')
+}
+
+// ── ★ the ancestry is kept ──────────────────────────────────────────────────────────────────────────
+{
+  const { p, calls } = provider([['tx/raw', resp({})], ['tx/broadcast', resp({})]])
+  await p.broadcast(bTx.hex)
+  ok(p.rawTxs.get(bTx.txid) === bTx.hex, '★★★ the raw bytes are RETAINED - the ancestry a payee needs')
+  const before = calls.length
+  ok(await p.getRawTransaction(bTx.txid) === bTx.hex, '★ …and served from our own copy')
+  ok(calls.length === before, '⚠ …with NO network call, so a child is spendable immediately')
+}
+{
+  // ⛔ bytes from a relay are checked against the txid we asked for
+  const { p } = provider([[`tx/${bTx.txid}/hex`, resp(bTx.hex)]])
+  ok(await p.getRawTransaction(bTx.txid) === bTx.hex, 'a fetched raw transaction is returned')
+  const other = 'ee'.repeat(32)
+  const { p: p2 } = provider([[`tx/${other}/hex`, resp(bTx.hex)]])
+  ok(await rejects(p2.getRawTransaction(other), 'was given'),
+     '⛔★ a relay handing back the WRONG transaction is refused, not cached')
+}
+
+// ── the orphan guard ────────────────────────────────────────────────────────────────────────────────
+{
+  // ★ BananaBlocks is asked FIRST - independent and non-pruning, so the more complete mempool view
+  // ⚠ match on the HOST: the path is /api/v1/tx/<txid>, so 'banana.test/tx/' matches nothing
+  const { p, calls } = provider([['banana.test', resp('seen')], ['woc.test', resp(null, 404)]])
+  ok(await p.visibleOn(bTx.txid) === 'BananaBlocks', '★ visibility prefers the non-pruning relay')
+  ok(calls[0].includes('banana.test'), '…and it is asked first')
+}
+{
+  const { p } = provider([['tx/', resp(null, 404)]])
+  ok(await p.visibleOn(bTx.txid) === null, '⚠ nobody reporting it is "not seen", not an error')
+}
+{
+  const { p } = provider([['tx/', () => { throw new Error('network down') }]])
+  ok(await p.visibleOn(bTx.txid) === null, '⚠ a relay that THROWS is also just "not seen"')
+}
+{
+  // ⛔ never visible ⇒ throws, so the caller aborts BEFORE broadcasting an orphan child
+  let broadcasts = 0
+  const c = clock()
+  const fetchImpl = async (url, init) => {
+    if (init?.method === 'POST') { broadcasts++; return resp({}) }
+    return resp(null, 404)
+  }
+  const http = new ChainHttp({ fetchImpl, sleep: c.sleep })
+  const p = new Provider(ADDR, { http, base: BASE, bananaBase: BANANA })
+  ok(await rejects(p.awaitInMempool(bTx.txid, bTx.hex), 'Missing inputs'),
+     '⛔ a parent that never appears ABORTS the child, naming why')
+  ok(broadcasts === 2, `★ …after exactly ONE re-broadcast between the two rounds (${broadcasts} relay posts)`)
+  ok(c.slept.filter(x => x === GATE_POLL_INTERVAL_MS).length === GATE_POLL_TRIES * 2,
+     '⚠ …having polled both rounds in full')
+}
+{
+  // ★ the ordinary case returns at once: the first check is immediate, before any sleep
+  const c = clock()
+  const http = new ChainHttp({ fetchImpl: async () => resp('here'), sleep: c.sleep })
+  const p = new Provider(ADDR, { http, base: BASE, bananaBase: BANANA })
+  ok(await p.awaitInMempool(bTx.txid, bTx.hex) === 'BananaBlocks', 'a visible parent clears the gate')
+  // ⚠ NOT `slept.length === 0`: the rate limiter pays its own 350 ms gap after every request, and that
+  //   is recorded too. The claim is about the GATE's wait, so count the gate's interval specifically.
+  ok(c.slept.filter(x => x === GATE_POLL_INTERVAL_MS).length === 0,
+     '★ …with no GATE wait at all, because the first check comes before the first sleep')
+}
+{
+  // the background guard re-broadcasts once if the tx has vanished
+  let posts = 0
+  const c = clock()
+  const http = new ChainHttp({
+    fetchImpl: async (url, init) => { if (init?.method === 'POST') { posts++; return resp({}) } return resp(null, 404) },
+    sleep: c.sleep,
+  })
+  const p = new Provider(ADDR, { http, base: BASE, bananaBase: BANANA })
+  ok(await p.confirmLanded(bTx.txid, bTx.hex) === 're-broadcast', 'the background guard re-sends a vanished tx')
+  ok(c.slept.filter(x => x === CONFIRM_POLL_INTERVAL_MS).length === CONFIRM_POLL_TRIES,
+     `⚠ …after ${CONFIRM_POLL_TRIES} slow polls, not immediately`)
+}
+{
+  // ⚠⚠ MUTATION TESTING FOUND THIS: checking only the RETURN VALUE proves nothing, because the txid is
+  //   the same whether the gate ran or not. Ignoring `awaitSeen` entirely walked straight through it.
+  //   ⇒ Assert the VISIBILITY CHECK actually happened, and that without the flag it does not.
+  const vis = `/tx/${bTx.txid}`
+  const table = [['tx/raw', resp({})], ['tx/broadcast', resp({})], ['tx/', resp('seen')]]
+  const a = provider(table)
+  ok(await a.p.broadcast(bTx.hex, { awaitSeen: true }) === bTx.txid, 'awaitSeen returns the txid')
+  ok(a.calls.some(c => c.includes(vis)), '★★ …and it really DID wait for the tx to be visible')
+  const b = provider(table)
+  ok(await b.p.broadcast(bTx.hex) === bTx.txid, 'without the flag it returns the txid too')
+  ok(!b.calls.some(c => c.includes(vis)),
+     '⚠ …and does NOT block - so the two paths are genuinely different')
+}
+
+
+// ══ ⚠⚠⚠ THE INVARIANT: EVERY REQUEST THIS MODULE MAKES IS PACED ═════════════════════════════════════
+//
+// ⚠⚠ A polling loop is exactly where a bypass hides. It is the highest-frequency path in the wallet, it
+//   runs while nothing else is happening, and skipping the queue there LOOKS harmless because each call
+//   is small - which is how you burst a free tier at the one moment you most need it answering.
+//   ⇒ THE DEPLOYED WALLET HAS THIS BYPASS: its `relayBroadcast` uses the queue and its `visibleOn` calls
+//     `fetch` directly. Ported faithfully that would have come across, so it is pinned here.
+//
+// ★ The method is general rather than per-call: the limiter pays a gap of exactly `minGapMs` after EVERY
+//   request it handles, so if the count of those gaps equals the count of fetches, nothing went round it.
+//   A distinctive gap value keeps it apart from the poll intervals and the 429 backoff.
+{
+  const GAP = 7777                              // ⚠ distinctive: not 2000, 15000, 500 or 1000
+  const slept = []
+  let fetches = 0
+  const fetchImpl = async (url, init) => {
+    fetches++
+    if (init?.method === 'POST') return resp({})
+    return resp(null, 404)                      // never visible, so the gate runs its full course
+  }
+  const http = new ChainHttp({ fetchImpl, sleep: async ms => { slept.push(ms) }, minGapMs: GAP })
+  const p = new Provider(ADDR, { http, base: BASE, bananaBase: BANANA })
+
+  await rejects(p.awaitInMempool(bTx.txid, bTx.hex), 'Missing inputs')
+  const paced = slept.filter(x => x === GAP).length
+  ok(fetches > 20, `the gate really did poll hard (${fetches} requests)`)
+  ok(paced === fetches, `★★★ EVERY one of the ${fetches} gate requests went through the queue (${paced} paced)`)
+}
+{
+  // ★ and the same invariant across the OTHER paths, so this is a module property rather than one fix
+  const GAP = 7777
+  const slept = []
+  let fetches = 0
+  const fetchImpl = async (url, init) => {
+    fetches++
+    if (init?.method === 'POST') return resp({})
+    if (url.includes('unspent')) return resp([])
+    if (url.includes('/hex')) return resp(bTx.hex)
+    return resp('seen')
+  }
+  const http = new ChainHttp({ fetchImpl, sleep: async ms => { slept.push(ms) }, minGapMs: GAP })
+  const p = new Provider(ADDR, { http, base: BASE, bananaBase: BANANA })
+  await p.getUtxos()
+  await p.broadcast(bTx.hex)
+  await p.visibleOn(bTx.txid)
+  await p.getRawTransaction('ff'.repeat(32)).catch(() => {})
+  const paced = slept.filter(x => x === GAP).length
+  ok(paced === fetches, `★★ fetch, broadcast, visibility and raw-tx are all paced (${paced}/${fetches})`)
+}
+{
+  // ⚠ and the cadence is SANE, not merely present: one poll costs the interval plus one gap per host
+  const perPoll = GATE_POLL_INTERVAL_MS + MIN_REQUEST_GAP_MS
+  ok(perPoll >= 2000 && perPoll <= 3000,
+     `★ the gate asks each relay about every ${perPoll} ms - fast enough to catch a tx in seconds, `
+   + `slow enough to be polite`)
+  ok(GATE_POLL_TRIES * perPoll < 30000, `…and the whole gate gives up inside ${Math.round(GATE_POLL_TRIES * perPoll / 1000)} s per round`)
 }
 
 console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [chain · offline, injected transport]`)

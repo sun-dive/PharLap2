@@ -16,12 +16,17 @@
  *   one variable really does see every request. The server-side sibling cannot use this and does not:
  *   there each request is its own process, so its queue lives in a file lock instead.
  *
- * ⚠ TWO DELIBERATE DIFFERENCES from the deployed version, stated rather than smuggled in:
+ * ⚠ FOUR DELIBERATE DIFFERENCES from the deployed version, stated rather than smuggled in:
  *   1. **The queue is PER HOST.** One global chain for every service is safe but throws away half the
  *      throughput - they are different services with different limits. It also removes the deployed
  *      version's footgun, which needed the comment *"do not instantiate multiple providers"*.
  *   2. **`Retry-After` is honoured** when the server sends one. If a service tells you exactly how long
  *      to wait, guessing 500 ms instead is worse for both sides.
+ *   3. **`confirmLanded` is NOT fired automatically.** The deployed version starts it unawaited after
+ *      every broadcast. That is right in an app, which owns the page and can log to a console; it is
+ *      wrong in a library, which would be starting background work the caller cannot await, observe or
+ *      cancel, and whose failures surface nowhere. ⇒ It is a method the caller starts. ⚠ The guard
+ *      itself is NOT optional - see the note on `broadcast`, and start it.
  *
  * ⚠⚠ `fetchImpl` AND `sleep` ARE INJECTABLE SO ALL OF THIS IS GRADED OFFLINE. A rate limiter that has
  *   only ever been run against a live API has not been tested: the interesting cases - a 429 storm, a
@@ -29,10 +34,36 @@
  */
 import { p2pkhScript, b58decode } from './address.mjs'
 import { reversed, fromHex, toHex } from './bytes.mjs'
+import { Tx } from './transaction.mjs'
 
 /** ★ The deployed wallet's number, and it has survived contact with the free tier. */
 export const MIN_REQUEST_GAP_MS = 350
 export const WOC_MAIN = 'https://api.whatsonchain.com/v1/bsv/main'
+/**
+ * ★★ A SECOND, INDEPENDENT RELAY, and the reason is policy rather than uptime. WhatsOnChain front-ends
+ *   ARC, which applies a stricter policy than GorillaPool's permissive miner, so a transaction one
+ *   refuses still has a home at the other.
+ *
+ * ⚠⚠⚠ AND SAY THIS PRECISELY, BECAUSE THE LOOSE VERSION MISLEADS THE NEXT PERSON TO DEBUG A REJECTION:
+ *   **NOTHING IN THIS PATH KNOWS WHAT A COVENANT IS.** Not ARC, not the miners. There is no covenant
+ *   rule to fall foul of and no covenant flag to set. A covenant is an ordinary transaction whose
+ *   script happens to be long and to use opcodes most transactions never touch.
+ *   ⇒ So what a relay actually weighs is generic: SCRIPT SIZE, TRANSACTION SIZE, WHICH OPCODES ARE
+ *     CONSIDERED STANDARD, FEE RATE, OUTPUT VALUES. ⇒ When a broadcast is refused, look at those
+ *     numbers. "It is a covenant" explains nothing and points debugging in the wrong direction.
+ *   ⚠ The deployed wallet's comment says ARC "can bounce non-standard covenant txs" and this inherited
+ *     that imprecision until it was corrected.
+ *
+ * ★ Consensus is stable; what strands one of these transactions is POLICY. One relay is one policy,
+ *   which is the whole reason there are two.
+ */
+export const BANANA_MAIN = 'https://bananablocks.com/api/v1'
+
+// ── the orphan guard's cadence, carried over unchanged ──────────────────────────────────────────────
+/** background re-check after a standalone broadcast */
+export const CONFIRM_POLL_TRIES = 3, CONFIRM_POLL_INTERVAL_MS = 15000
+/** the BLOCKING gate before a child spends its parent - fast, because a tx usually surfaces in seconds */
+export const GATE_POLL_TRIES = 10, GATE_POLL_INTERVAL_MS = 2000
 
 export class ChainError extends Error {}
 
@@ -120,7 +151,7 @@ export class ChainHttp {
  *     scriptCode: well formed, and refused by every node |
  */
 export class Provider {
-  constructor(address, { http = new ChainHttp(), base = WOC_MAIN } = {}) {
+  constructor(address, { http = new ChainHttp(), base = WOC_MAIN, bananaBase = BANANA_MAIN } = {}) {
     const d = b58decode(address)
     if (!d || d.payload.length !== 20)
       throw new ChainError(`not a P2PKH address: ${address}`)
@@ -130,6 +161,15 @@ export class Provider {
     this.script = p2pkhScript(d.payload)
     this.http = http
     this.base = base
+    this.bananaBase = bananaBase
+    /**
+     * ★★★ THE RAW TRANSACTIONS WE HAVE SEEN OR SENT, txid → hex.
+     * ⚠ Not a speed cache. This is the ANCESTRY: to spend an unconfirmed output you must be able to
+     *   hand a payee the transactions behind it, back to where merkle proofs begin. Keeping the bytes
+     *   of what we just broadcast is what makes a child spendable immediately, with no relay round trip
+     *   and no waiting for anything to index it.
+     */
+    this.rawTxs = new Map()
     // ★★★ THESE ARE THE AUTHORITY ON WHAT WE HAVE SPENT, and the ranking is deliberate.
     //
     // ⚠⚠ THE DEPLOYED WALLET RANKS IT THE OTHER WAY UP, calling the indexer *"the source of truth for
@@ -256,6 +296,147 @@ export class Provider {
         display: txid,
       })
     }
+  }
+
+  // ══ BROADCAST ═════════════════════════════════════════════════════════════════════════════════════
+
+  /**
+   * POST the same signed transaction to both relays; resolve with the name of the FIRST to accept.
+   * Rejects only if EVERY relay refuses.
+   *
+   * ★★ Sending the same bytes to two relays carries no double-spend risk: same transaction, same txid.
+   *   It buys two independent shots at a miner and removes either service as a single point of failure.
+   *   A relay that is down, or CORS-blocked in one environment, simply loses the race.
+   *
+   * ★ AND THIS IS WHY THE QUEUES ARE PER HOST. On one global queue these two would serialize, paying
+   *   the gap between them and turning a race into a sequence. Different hosts, different queues, so
+   *   they genuinely go at once.
+   *
+   * ⚠ The two relays want DIFFERENT BODY SHAPES for the identical transaction. Nothing warns you.
+   */
+  async relayBroadcast(rawHex) {
+    const relays = [
+      { name: 'WoC', url: `${this.base}/tx/raw`, body: { txhex: rawHex } },
+      { name: 'BananaBlocks', url: `${this.bananaBase}/tx/broadcast`, body: { rawtx: rawHex } },
+    ]
+    const attempts = relays.map(async r => {
+      const resp = await this.http.request(r.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(r.body),
+      })
+      // ⚠⚠ A REJECTION IS A REJECTION. No relay's error taxonomy is parsed here, and none should be:
+      //   a rejected transaction is simply rejected, the reasons are POLICY, and policy is the thing
+      //   that changes without notice. ⇒ A parser built on today's codes goes wrong SILENTLY the day
+      //   one is renamed, and it would be classifying something we already act on the same way.
+      //   ★ So the relay's own words are carried back verbatim for a person to read, and the only
+      //     status with behaviour attached is 429, which is not a rejection at all.
+      if (!resp.ok) throw new ChainError(`${r.name} ${resp.status}: ${(await resp.text()).slice(0, 200)}`)
+      return r.name
+    })
+    // ⚠ Promise.any resolves on the first ACCEPTANCE and rejects only when all reject. Promise.race
+    //   would resolve on the first SETTLEMENT, so one fast rejection would lose a slower acceptance.
+    try { return await Promise.any(attempts) } catch (agg) {
+      const errs = (agg?.errors ?? [agg]).map(e => String(e?.message ?? e))
+      throw new ChainError(`rejected by every relay: ${errs.join(' | ')}`)
+    }
+  }
+
+  /**
+   * Broadcast a signed transaction. Returns its txid.
+   *
+   * ⚠⚠⚠ THE TXID IS COMPUTED LOCALLY, NEVER READ FROM THE RELAY'S REPLY. It is determined by the signed
+   *   bytes, so we already know it - and an ARC-style relay can answer 200 with a txid for a transaction
+   *   it then leaves in ORPHAN_MEMPOOL and never mines (arc #1006). ⇒ Trusting the echo means believing
+   *   a service about something you can compute yourself, and believing it at the one moment it is
+   *   least reliable.
+   *
+   * ⚠⚠ THE ORPHAN GUARD IS NOT OPTIONAL, it is just not automatic. Either pass `awaitSeen`, or start
+   *   `confirmLanded(txid, rawHex)` yourself. A transaction accepted and then dropped, with nobody
+   *   watching, is the failure this whole path exists for.
+   *
+   * @param awaitSeen BLOCK until the transaction is actually visible in a relay mempool. Pass this when
+   *   a CHILD transaction will spend one of its outputs: the child would otherwise be refused as
+   *   "Missing inputs", and this throws first so the caller aborts BEFORE broadcasting an orphan child.
+   */
+  async broadcast(rawHex, { awaitSeen = false } = {}) {
+    const txid = Tx.parse(rawHex).txid()
+    await this.relayBroadcast(rawHex)
+    // ★ Keep the bytes. A spend of one of these outputs can then be built at once - see `rawTxs`.
+    this.rawTxs.set(txid, rawHex)
+    if (awaitSeen) await this.awaitInMempool(txid, rawHex)
+    return txid
+  }
+
+  /**
+   * Which relay, if any, currently reports this transaction as present.
+   * ★ BananaBlocks is asked FIRST: it is independent and non-pruning, so it holds the more complete
+   *   mempool view. ⚠ A failure to answer is "not seen", never an error - this is a check, not a fetch.
+   */
+  async visibleOn(txid) {
+    const relays = [
+      ['BananaBlocks', `${this.bananaBase}/tx/${txid}`],
+      ['WoC', `${this.base}/tx/${txid}/hex`],
+    ]
+    const seen = await Promise.all(relays.map(async ([name, url]) => {
+      try { return (await this.http.request(url)).ok ? name : null } catch { return null }
+    }))
+    return seen.find(Boolean) ?? null
+  }
+
+  /**
+   * The BLOCKING parent gate: wait until `txid` is visible so a child may safely spend its output.
+   *
+   * ⚠⚠ Two rounds with ONE re-broadcast between them. A relay can accept a transaction and then silently
+   *   drop it, and re-sending is harmless because it is the same bytes and therefore the same txid.
+   * ★ The first check is immediate, so the ordinary case returns almost at once.
+   * ⛔ Throws if it never appears. That is the point: the caller must abort rather than broadcast a
+   *   child whose parent no node has.
+   */
+  async awaitInMempool(txid, rawHex) {
+    for (let round = 0; round < 2; round++) {
+      for (let i = 0; i < GATE_POLL_TRIES; i++) {
+        const on = await this.visibleOn(txid)
+        if (on) return on
+        await this.http.sleep(GATE_POLL_INTERVAL_MS)
+      }
+      // ⚠ swallowed deliberately: the ORIGINAL acceptance may still surface, so keep polling either way
+      if (round === 0) try { await this.relayBroadcast(rawHex) } catch { /* keep polling */ }
+    }
+    throw new ChainError(
+      `${txid} never appeared in a relay mempool. ⇒ Aborting before the dependent transaction, which `
+    + `would be refused as "Missing inputs".`)
+  }
+
+  /**
+   * The non-blocking orphan guard for a standalone transaction: poll on a slow cadence and re-broadcast
+   * once if it has vanished. ★ Best effort - the caller already holds the txid and need not wait.
+   */
+  async confirmLanded(txid, rawHex) {
+    for (let i = 0; i < CONFIRM_POLL_TRIES; i++) {
+      await this.http.sleep(CONFIRM_POLL_INTERVAL_MS)
+      const on = await this.visibleOn(txid)
+      if (on) return on
+    }
+    try { await this.relayBroadcast(rawHex); return 're-broadcast' } catch { return null }
+  }
+
+  /**
+   * A transaction's raw bytes. ★ Ours first: what we just broadcast is already here, and a relay may
+   * not have indexed it yet.
+   */
+  async getRawTransaction(txid) {
+    const held = this.rawTxs.get(txid)
+    if (held) return held
+    const r = await this.http.request(`${this.base}/tx/${txid}/hex`)
+    if (!r.ok) throw new ChainError(`raw transaction fetch failed for ${txid}: HTTP ${r.status}`)
+    const hex = (await r.text()).trim()
+    // ⚠⚠ VERIFY WHAT WE WERE GIVEN. A relay hands back bytes; only the hash says they are the ones
+    //   asked for. Caching an unchecked response would poison the ancestry for everything after it.
+    const got = Tx.parse(hex).txid()
+    if (got !== txid) throw new ChainError(`asked for ${txid} and was given ${got}`)
+    this.rawTxs.set(txid, hex)
+    return hex
   }
 
   /** ★ For a person, and for the keys above. `display` is what an explorer shows. */

@@ -46,7 +46,13 @@ for (const m of modules) {
   let built = true, err = ''
   try {
     // ⚠ platform:'browser' is the point — it REFUSES node: builtins rather than shimming them.
-    await build({ entryPoints: [join(IMPL, m)], bundle: true, outfile: out,
+    // ⚠⚠ minify:true IS NOT FOR SIZE. It strips COMMENTS, and without it this check scans prose as
+    //   though it were code: the word "global" inside a JSDoc block failed a module that was perfectly
+    //   browser-safe. ⇒ A checker that reads comments is policing spelling, and the same flaw would let
+    //   a comment mentioning `Buffer` fail a clean file — or read as rigour while proving less than it
+    //   claims. Free variables like `Buffer` and `process` survive minification, which is what we scan
+    //   for, so nothing real is lost.
+    await build({ entryPoints: [join(IMPL, m)], bundle: true, outfile: out, minify: true,
                   platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
   } catch (e) { built = false; err = String(e.message ?? e).split('\n').find(l => l.includes('ERROR')) ?? String(e).slice(0, 120) }
   if (!built) { ok(false, `${m} — does not bundle: ${err}`); continue }
