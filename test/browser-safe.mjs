@@ -40,9 +40,21 @@ const NODE_ONLY = [
 const modules = readdirSync(IMPL).filter(f => f.endsWith('.mjs')).sort()
 console.log(`── ${modules.length} modules under impl/js, each bundled for a browser ──`)
 
+// ⚠⚠ APPLICATION FILES ARE CHECKED THE SAME WAY. They arrive in `src/` ADAPTED, one at a time, and the
+//   allowlist above already refuses one that still imports the removed library. But an import check is
+//   not a browser check: a file can import only permitted modules and still reach for `Buffer`. ⇒ These
+//   are bundled and scanned exactly as the wallet core is. esbuild reads TypeScript natively, so this
+//   costs nothing and closes the gap the moment a file lands rather than later.
+
 const tmp = mkdtempSync(join(tmpdir(), 'browsersafe-'))
-for (const m of modules) {
-  const out = join(tmp, m.replace('.mjs', '.js'))
+const SRC = join(ROOT, 'src')
+let appFiles = []
+try { appFiles = readdirSync(SRC).filter(f => /\.(ts|mjs|js)$/.test(f) && !f.endsWith('.d.ts')).sort() } catch {}
+const all = [...modules.map(m => [IMPL, m]), ...appFiles.map(f => [SRC, f])]
+if (appFiles.length) console.log(`   …and ${appFiles.length} adapted application file(s) under src/`)
+
+for (const [dir, m] of all) {
+  const out = join(tmp, m.replace(/\.(mjs|ts|js)$/, '') + '.bundle.js')
   let built = true, err = ''
   try {
     // ⚠ platform:'browser' is the point — it REFUSES node: builtins rather than shimming them.
@@ -52,7 +64,7 @@ for (const m of modules) {
     //   a comment mentioning `Buffer` fail a clean file — or read as rigour while proving less than it
     //   claims. Free variables like `Buffer` and `process` survive minification, which is what we scan
     //   for, so nothing real is lost.
-    await build({ entryPoints: [join(IMPL, m)], bundle: true, outfile: out, minify: true,
+    await build({ entryPoints: [join(dir, m)], bundle: true, outfile: out, minify: true,
                   platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
   } catch (e) { built = false; err = String(e.message ?? e).split('\n').find(l => l.includes('ERROR')) ?? String(e).slice(0, 120) }
   if (!built) { ok(false, `${m} — does not bundle: ${err}`); continue }
