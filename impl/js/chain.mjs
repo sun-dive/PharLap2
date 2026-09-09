@@ -32,7 +32,6 @@
  *   only ever been run against a live API has not been tested: the interesting cases - a 429 storm, a
  *   Retry-After header, two callers racing - are exactly the ones a service will not produce on demand.
  */
-import { p2pkhScript, b58decode } from './address.mjs'
 import { reversed, fromHex, toHex } from './bytes.mjs'
 import { Tx } from './transaction.mjs'
 

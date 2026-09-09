@@ -51,3 +51,19 @@ export function wifDecode(wif) {
   if (compressed && b[33] !== 0x01) return null      // ⚠ only 0x01 is a valid suffix
   return { key: b.subarray(1, 33), compressed, version: b[0] }
 }
+
+/**
+ * A mainnet P2PKH locking script for an address, or throw.
+ *
+ * ★ Used wherever an address arrives from OUTSIDE - a recipient someone typed or pasted - which is the
+ *   one place a bad address can reach the wallet. ⚠ It validates by DECODING: the base58 checksum, the
+ *   payload length and the version byte all have to be right, so a typo fails here rather than building
+ *   a transaction that pays a script nobody can ever spend.
+ */
+export function scriptForAddress(addr) {
+  const d = b58decode(addr)
+  if (!d) throw new Error(`not a valid address: ${addr}`)
+  if (d.payload.length !== 20) throw new Error(`address payload is ${d.payload.length} bytes, expected 20`)
+  if (d.version !== 0x00) throw new Error(`address version 0x${d.version.toString(16)} is not mainnet P2PKH`)
+  return p2pkhScript(d.payload)
+}
