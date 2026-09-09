@@ -147,6 +147,42 @@ for (const f of walk(ROOT)) {
 }
 ok(strays.length === 0, `⛔ imports that are not on the allowlist: ${strays.join(', ')}`)
 
+// ══ ⛔ THE BUILD CONFIG ITSELF ═══════════════════════════════════════════════════════════════════════
+//
+// ⚠⚠ TWO THINGS ABOUT `build.mjs` THAT NO OTHER CHECK WOULD NOTICE, because they are about what is
+//   DISTRIBUTED rather than about whether the code runs.
+console.log('\n── ⛔ the build config ──')
+{
+  const cfg = readFileSync(join(ROOT, 'build.mjs'), 'utf8')
+
+  // ⛔ 1 · NO `global` DEFINE. The deployed build carries one, assumed necessary for the removed library.
+  //   Measured 10 Sept 2026: building that application with and without it gives a BYTE-IDENTICAL
+  //   bundle - nothing referenced bare `global` as an identifier at all.
+  //   ⇒ It matters that it stays out. A define replacing a Node global silently patches over a real Node
+  //     dependency creeping in, instead of letting the build fail and say so.
+  ok(!/['"]?global['"]?\s*:/.test(cfg.replace(/\/\*[\s\S]*?\*\//g, '')),
+     '⛔ the build does NOT define `global` — dead config that would mask a real Node dependency')
+
+  // ⛔ 2 · THE MIT NOTICE IS A BANNER. `@noble/hashes` is MIT and its notice must travel with its code.
+  //   ⚠⚠ `legalComments` does NOT do this: it only preserves comments a source marks with `/*!`, and that
+  //     dependency marks none, so building with and without it is byte-identical. Relying on it would
+  //     have looked like compliance and been none. A banner is written in unconditionally.
+  ok(/banner\s*:\s*\{\s*js\s*:/.test(cfg), '⛔ the bundle carries a licence BANNER, not just legalComments')
+  ok(/Paul Miller/.test(cfg) && /MIT/.test(cfg),
+     '★ …and it names the MIT holder, which is what the licence actually requires')
+
+  // ★ and prove the banner really lands in a bundle, rather than trusting the setting
+  const NOTICE = (cfg.match(/const NOTICE = `([\s\S]*?)`/) ?? [])[1]
+  ok(NOTICE !== undefined && NOTICE.startsWith('/*!'), 'the banner is a legal comment esbuild will keep')
+  const probe = await build({
+    entryPoints: [join(IMPL, 'bip39.mjs')], bundle: true, write: false, banner: { js: NOTICE ?? '' },
+    platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent',
+  })
+  const text = probe.outputFiles[0].text
+  ok(text.startsWith('/*!') && /Paul Miller/.test(text),
+     '★★ MEASURED: the notice is present in the built output, not merely configured')
+}
+
 // ── ⚠ the anti-vacuous guard ────────────────────────────────────────────────────────────────────────
 // A check that would pass on an empty directory is not a check.
 ok(modules.length >= 5, `★ and there are really ${modules.length} modules to check, not zero`)
