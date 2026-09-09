@@ -163,7 +163,25 @@ console.log('\n── ⛔ the build config ──')
   ok(!/['"]?global['"]?\s*:/.test(cfg.replace(/\/\*[\s\S]*?\*\//g, '')),
      '⛔ the build does NOT define `global` — dead config that would mask a real Node dependency')
 
-  // ⛔ 2 · THE MIT NOTICE IS A BANNER. `@noble/hashes` is MIT and its notice must travel with its code.
+  // ⛔⛔ 2 · THE BUNDLE MUST NOT BE CALLED `bundle.js`. Phar Lap 1 is LIVE, its script is `bundle.js`,
+  //   and its deploy step is `cp bundle.js "$DEPLOYPATH"`. Two projects emitting the same filename are
+  //   one wrong path away from this one replacing the live app's script. ⇒ A distinct name makes that
+  //   impossible rather than unlikely, which is the deployment form of keeping each page's script
+  //   isolated. The name is checked here so it cannot be tidied back.
+  ok(/outfile:\s*['"]testbundle2\.js['"]/.test(cfg),
+     '⛔★ the build emits testbundle2.js — NEVER bundle.js, which is the live app\'s script')
+  ok(!/outfile:\s*['"]bundle\.js['"]/.test(cfg), '…and does not emit the live name')
+  // ⚠ and nothing in the repository may ask a browser for the live app's script by name
+  {
+    const asks = walk(ROOT).concat(
+      (() => { try { return readdirSync(ROOT).filter(f => f.endsWith('.html')).map(f => join(ROOT, f)) } catch { return [] } })(),
+    ).filter(f => /\.(html|ts|mjs|js)$/.test(f))
+      .filter(f => /(src|href)=["'][^"']*\bbundle\.js/.test(readFileSync(f, 'utf8')))
+      .map(f => f.slice(ROOT.length + 1))
+    ok(asks.length === 0, `⛔ no page loads \`bundle.js\`: ${asks.join(', ')}`)
+  }
+
+  // ⛔ 3 · THE MIT NOTICE IS A BANNER. `@noble/hashes` is MIT and its notice must travel with its code.
   //   ⚠⚠ `legalComments` does NOT do this: it only preserves comments a source marks with `/*!`, and that
   //     dependency marks none, so building with and without it is byte-identical. Relying on it would
   //     have looked like compliance and been none. A banner is written in unconditionally.

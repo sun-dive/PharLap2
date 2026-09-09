@@ -7,3 +7,5 @@ node_modules/
 #   They are not this repository's to publish, and one of them is 237 KB. Each suite SKIPS loudly
 #   when its vectors are absent rather than quietly passing.
 test/*-vectors.json
+testbundle2.js
+testbundle2.js.map

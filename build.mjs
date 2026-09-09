@@ -4,7 +4,15 @@
  *
  *   node build.mjs
  *
- * ★ Produces `bundle.js` beside `index.html`. Both are RELATIVE-path only, so the app runs from any
+ * ⚠⚠⚠ THE OUTPUT IS `testbundle2.js`, NOT `bundle.js`, AND THAT NAME IS A SAFETY MEASURE.
+ *   Phar Lap 1 is LIVE, its bundle is called `bundle.js`, and its deploy step is literally
+ *   `cp bundle.js "$DEPLOYPATH"`. ⇒ Two projects both producing `bundle.js` are one wrong path away
+ *   from this one overwriting the live app's script. A different name makes that IMPOSSIBLE rather than
+ *   unlikely, so testing at `example.com/pharlap2` cannot touch what is already running.
+ *   ⛔ Do not "tidy" this back to `bundle.js`. The suite refuses the build config if it changes, and
+ *     refuses the page if it asks for a file by the live app's name.
+ *
+ * ★ Produces `testbundle2.js` beside `index.html`. Both are RELATIVE-path only, so the app runs from any
  *   directory a web server can reach - `example.com/pharlap2` works with no configuration, and so does
  *   opening `index.html` straight off a USB stick on an air-gapped machine.
  *
@@ -23,8 +31,8 @@
  *     the source already marks with `/*!`, and this dependency marks none. Building with it and without
  *     it gives byte-identical output. ⇒ Relying on it would have looked like compliance and been none.
  *   ⇒ A banner is unconditional: it is written into `bundle.js` itself, so the notice travels with the
- *     code. That matters here because deploying means copying `index.html`, `bundle.js` and `brand/` to
- *     a directory - a NOTICE file left behind in the repository goes nowhere.
+ *     code. That matters here because deploying means copying `index.html`, `testbundle2.js` and `brand/`
+ *     to a directory - a NOTICE file left behind in the repository goes nowhere.
  */
 import { build } from 'esbuild'
 import { execSync } from 'node:child_process'
@@ -46,7 +54,7 @@ const buildDate = new Date().toISOString().slice(0, 10)
 const result = await build({
   entryPoints: ['src/app.ts'],
   bundle: true,
-  outfile: 'bundle.js',
+  outfile: 'testbundle2.js',
   platform: 'browser',
   format: 'iife',
   sourcemap: true,
@@ -65,8 +73,8 @@ const result = await build({
 
 // ⚠ Report what actually went in. A bundle that silently grew a dependency is worth noticing at build
 //   time rather than in a licence audit later.
-const inputs = Object.keys(result.metafile.outputs['bundle.js'].inputs)
+const inputs = Object.keys(result.metafile.outputs['testbundle2.js'].inputs)
 const external = inputs.filter(p => p.includes('node_modules'))
 const packages = [...new Set(external.map(p => p.replace(/^.*node_modules\//, '').split('/').slice(0, 2).join('/')))]
-console.log(`bundle.js  v${APP_VERSION} · ${buildId} · ${buildDate}`)
+console.log(`testbundle2.js  v${APP_VERSION} · ${buildId} · ${buildDate}`)
 console.log(`  ${inputs.length} modules, ${packages.length} external package(s): ${packages.join(', ') || 'none'}`)
