@@ -112,19 +112,43 @@ worse than one that waits.**
 
 ---
 
-## 6 · ⚠ One thing a browser build must still decide
+## 6 · Why there is a dependency at all
 
-`bip39.toSeed` needs **PBKDF2-HMAC-SHA512** and RFC 6979 needs **HMAC-SHA256**, and both must be
-**synchronous**. Node provides them. ⛔ **The browser's WebCrypto is asynchronous and cannot be used
-here.**
+One, `@noble/hashes`, and the reason is narrow: **`bip39.toSeed` needs PBKDF2-HMAC-SHA512 and RFC 6979
+needs HMAC-SHA256, and both must be SYNCHRONOUS.** A nonce is derived inside signing, which is a
+synchronous function; it cannot await.
 
-⇒ Rather than choose a browser hash silently, **both are injected**, with Node implementations supplied
-for the harness. The bundling step makes that choice
-explicitly, and it will be visible in the diff when it does.
+⛔ **The browser's own crypto cannot do that.** `crypto.subtle` is asynchronous, so it is unusable at
+those two call sites no matter how good it is.
+
+★ **Which is not a rule against the platform's crypto — the opposite.** `src/contentCrypto.ts` uses the
+browser's AES-GCM, because there the call site *can* await. That swap made encryption **424× faster**
+than the JavaScript implementation it replaced: a 47 MB release went from roughly 21 seconds of
+arithmetic to a tenth of a second. ⇒ The rule is *the platform's crypto wherever the call site can
+await, and only where it cannot do we carry our own.*
+
+⚠ An earlier version of this section left that as an open question, and both hashes were injected so the
+choice would be visible. The choice has been made; the injection is gone.
 
 ---
 
-## 7 · What has NOT changed
+## 7 · What is NOT here yet
+
+⚠⚠ **THE INTERFACE.** Phar Lap 1 is a browser app — `index.html` plus a bundle — and none of that has
+been brought across. What exists here is the wallet and the layers directly under the interface: keys,
+coins, scripts, transactions, signing, the network, and the builders a payment and a mint go through.
+
+⏭ Also open: **authenticated encryption between two parties**, used by the messaging and settings-backup
+features. Not on the path to sending a payment.
+
+★★★ **And nothing has been broadcast.** Every check in this repository grades against frozen chain data,
+the specifications' published vectors, openssl, an injected transport, or the deployed wallet's own
+bytes. That is a strong position and it is not the same as having spent a satoshi. **The first real send
+is the one none of it can stand in for.**
+
+---
+
+## 8 · What has NOT changed
 
 The covenants. The on-chain formats. The addresses. The derivation path `m/44'/236'/0'/0/0`, which
 Phar Lap 1's source says must never change.

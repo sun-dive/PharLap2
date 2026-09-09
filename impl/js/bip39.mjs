@@ -18,8 +18,14 @@
  *
  * ⚠ PBKDF2-HMAC-SHA512 at 2048 iterations is weak by modern standards, but it is what BIP-39 specifies
  * and changing it breaks every wallet in existence. A documented trade, not an oversight.
- * ⚠⚠ `pbkdf2` is INJECTED — Node has a sync one; the browser's WebCrypto is async. Same reason as
- * `rfc6979.mjs`: the choice stays visible rather than being made silently.
+ * ⚠⚠ `pbkdf2` USED TO BE INJECTED, and this comment said so long after it stopped being true - which is
+ * worse than a stale document, because it sat two lines above the import that contradicts it.
+ *   ★ It is now `@noble/hashes`, directly and SYNCHRONOUSLY, and that is the whole reason this project
+ *     has a dependency at all: **the browser's own crypto cannot do this.** `crypto.subtle` is
+ *     asynchronous, and a seed derivation sitting inside a synchronous key derivation cannot await.
+ *   ⚠ Contrast `contentCrypto.ts`, which DOES use the browser's AES: there the call site can await, so
+ *     the platform's implementation is both usable and better. The rule is not "avoid WebCrypto", it is
+ *     "WebCrypto where the call site can await, and this one cannot".
  */
 import { sha256, sha512 } from '@noble/hashes/sha2.js'
 import { pbkdf2 } from '@noble/hashes/pbkdf2.js'
