@@ -271,15 +271,46 @@ function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 140
   ok(threw !== '', '⛔ signing honours the expectation rather than merely reporting it')
 }
 
-// ── ⚠⚠ 10 · A WITHDRAWAL IS NOT A TOP-UP ────────────────────────────────────────────────────────────
-// ⚠ The same shape with the numbers reversed drains the covenant. It is a legitimate transaction and
-//   this module does not refuse it — but a signer who thinks they are funding something must be told.
+// ── ⚠⚠ 10 · A FALLING VALUE IS NORMAL — UNTIL IT IS NOT ─────────────────────────────────────────────
+//
+// ⚠⚠⚠ THIS IS WHERE THE OBVIOUS RULE IS WRONG. A covenant of this kind pays its own running costs out
+//   of the value it carries: the battery's rule is a FLOOR, `out0.value ≥ V − MAX_FEE`, not an equality.
+//   So an ordinary TICK comes out slightly smaller, and a top-up is just a tick that came out larger.
+//   ⇒ Warning on any decrease means firing in capitals on normal operation, which trains the signer to
+//     click through the warning that matters. The first version of this did exactly that.
+//
+// ★★★ THE FEE IS THE LINE. Value that left the covenant and went to the MINER is accounted for. Value
+//   that left BEYOND the fee went to one of the other outputs — it did not evaporate, somebody took it.
+//   That is derivable here alone, needs no knowledge of which covenant this is, and stays correct for a
+//   covenant that does permit a withdrawal.
 {
-  const t = topUp({ was: 105000, becomes: 5000, myCoin: 2000, changeSats: 101000 })
-  const a = CS.analyseCosign(t.rawTx, t.sources, me.address())
-  ok(a.funding[0].added === -100000, '★★ the direction is derived, not assumed')
-  ok(a.warnings.some(w => /TAKES .* OUT of the script/.test(w)),
-     '⚠⚠★★★ …and a withdrawal dressed as a funding transaction is called out in capitals')
+  // an ordinary tick: the covenant shrinks by exactly what the transaction pays the miner
+  const tick = topUp({ was: 105000, becomes: 104800, myCoin: 0, changeSats: 0 })
+  const a = CS.analyseCosign(tick.rawTx, tick.sources, me.address())
+  ok(a.funding[0].added === -200, '★★ a tick’s value falls, and the fall is derived')
+  ok(a.fee === 200, '…and it is exactly the fee')
+  ok(!a.warnings.some(w => /LESS than input/.test(w)),
+     '★★★ a covenant paying its OWN fee raises no alarm — this is what normal operation looks like')
+
+  // value leaving beyond the fee: it went to an output, not to a miner
+  const drained = topUp({ was: 105000, becomes: 5000, myCoin: 2000, changeSats: 101000 })
+  const b = CS.analyseCosign(drained.rawTx, drained.sources, me.address())
+  ok(b.funding[0].added === -100000, '★★ the direction is derived, not assumed')
+  ok(b.warnings.some(w => /LESS than input/.test(w)),
+     '⚠⚠★★★ …and value leaving BEYOND the fee is called out — somebody took it')
+
+  /* ★★★ THE BOUNDARY IS WHERE THIS HAS TO BE EXACT, and a large drain does not test it. Siphoning a
+     little on every tick is the realistic version of this attack: it looks like an expensive tick, it
+     is small enough to be mistaken for rounding, and it repeats. ⇒ Here the covenant falls by 300 while
+     the transaction pays 200, so exactly 100 sat went to an output rather than to a miner.
+     ⚠ Written because a mutation that double-counted the fee SURVIVED the large-drain case above — the
+       drain was so far past the threshold that getting the threshold wrong changed nothing. */
+  const siphon = topUp({ was: 105000, becomes: 104700, myCoin: 1000, changeSats: 1100 })
+  const c = CS.analyseCosign(siphon.rawTx, siphon.sources, me.address())
+  ok(c.fee === 200 && c.funding[0].added === -300,
+     `★★ the covenant falls 300 while the transaction pays 200 (fee ${c.fee}, delta ${c.funding[0].added})`)
+  ok(c.warnings.some(w => /100 sat LESS than input/.test(w)),
+     '⚠★★★ …and exactly the 100 sat that went somewhere other than the miner is named')
 }
 
 // ── ⚠ 11 · MONEY GOING SOMEWHERE WITH NO PRECEDENT ──────────────────────────────────────────────────

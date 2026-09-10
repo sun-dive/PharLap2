@@ -313,9 +313,19 @@ export function analyseCosign(
   /* ★★★ THE SECOND HALF OF THE DEFENCE. The fee warning stops a surplus going to a miner; this says
      where the rest of the money went. A signer funding the battery needs both, and neither is visible
      on the face of the document. */
+  /* ⚠⚠⚠ A FALLING VALUE IS NORMAL, AND THE FIRST VERSION OF THIS DID NOT KNOW THAT. A covenant of this
+     kind pays its own running costs out of the value it carries — the battery's rule is a FLOOR,
+     `out0.value ≥ V − MAX_FEE`, not an equality — so an ordinary tick comes out slightly SMALLER and a
+     top-up is simply a tick that came out larger. Warning on any decrease fires in capitals on normal
+     operation, which is the cry-wolf failure this module is careful about everywhere else.
+     ★ THE LINE THAT ACTUALLY SEPARATES THEM IS THE FEE. Value that left the covenant and went to the
+       miner is accounted for. Value that left BEYOND the fee went to one of the other outputs — it did
+       not evaporate, somebody took it. ⇒ That is derivable from this transaction alone, needs no
+       knowledge of which covenant it is, and stays true for covenants that do permit a withdrawal. */
   for (const f of funding) {
-    if (f.added < 0) {
-      warnings.push(`⚠ output #${f.outputIndex + 1} TAKES ${(-f.added).toLocaleString()} sat OUT of the script input #${f.inputIndex + 1} is spending — this is a withdrawal, not a top-up`)
+    const leaked = -f.added - Math.max(fee, 0)
+    if (leaked > 0) {
+      warnings.push(`⚠ output #${f.outputIndex + 1} carries ${leaked.toLocaleString()} sat LESS than input #${f.inputIndex + 1} even after the fee — that value went to another output, not to the miner`)
     }
   }
   for (const o of outputs) {
