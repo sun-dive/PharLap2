@@ -1,0 +1,172 @@
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
+/**
+ * PHAR LAP message transactions (Messaging v1).
+ *
+ * A message is delivered like a token transfer: a RECORD_MESSAGE PushDrop output locked to the
+ * recipient's pubkey, plus a 1-sat P2PKH notification to the recipient's address (the discovery
+ * breadcrumb — the PushDrop output itself is not WoC-address-indexed). The recipient finds it with
+ * scanIncomingMessages and opens the envelope with their private key.
+ *
+ *   in:   sender funding (P2PKH)
+ *   out0: message PushDrop → recipient pubkey   (RECORD_MESSAGE record, 1 sat)
+ *   out1: notification     → recipient address  (1 sat P2PKH, default-on)
+ *   out2: change
+ *
+ * buildMessageTx is pure/offline (explicit funding) so it can be validated without the network.
+ */
+import { Tx } from '../impl/js/transaction.mjs'
+import { LockingScript } from '../impl/js/script.mjs'
+import { applyFee } from '../impl/js/coins.mjs'
+import { scriptForAddress } from '../impl/js/address.mjs'
+import { toHex } from '../impl/js/bytes.mjs'
+import { addressFromPubHex } from './bytes.ts'
+import type { Signer } from '../impl/js/signer.mjs'
+import { buildMessageScript, parseMessageScript } from './tokenCodec.ts'
+import { buildEnvelope, openEnvelope, type Part } from './messageCodec.ts'
+import {
+  PHARLAP_OUTPUT_SATS, DEFAULT_FEE_PER_KB, getSafeUtxos, selectFunding, addFunding, signFunding, UNLOCK_P2PKH,
+  type FundingInput,
+} from './collectionBuilder.ts'
+import type { WalletProvider, Utxo } from './walletProvider.ts'
+
+const ZERO_REF = '00'.repeat(32)
+
+export interface MessageTxResult {
+  tx: Tx
+  txId: string
+  messageVout: number
+  notifyVout: number | null
+  changeVout: number | null
+  changeSats: number
+}
+
+export async function buildMessageTx(opts: {
+  key: Signer
+  funding: FundingInput[]
+  recipientPubKeyHex: string
+  /** 32-byte hex context ref (collection id / thread root), or 64 zeros for a standalone DM. */
+  ref?: string
+  envelope: number[]
+  notify?: boolean
+  outputSats?: number
+  feePerKb?: number
+}): Promise<MessageTxResult> {
+  const sats = opts.outputSats ?? PHARLAP_OUTPUT_SATS
+  const notify = opts.notify ?? true
+  const tx = new Tx(1, [], [], 0)
+  addFunding(tx, opts.funding)
+
+  const messageVout = tx.outputs.length
+  tx.outputs.push({
+    value: sats,
+    script: buildMessageScript(opts.recipientPubKeyHex, { ref: opts.ref ?? ZERO_REF, envelope: opts.envelope }).toBinary(),
+  })
+
+  let notifyVout: number | null = null
+  if (notify) {
+    const recipientAddress = addressFromPubHex(opts.recipientPubKeyHex)
+    notifyVout = tx.outputs.length
+    tx.outputs.push({ value: 1, script: scriptForAddress(recipientAddress) })
+  }
+
+  const changeVout = tx.outputs.length
+  tx.outputs.push({ value: 0, script: opts.key.lockingScript() })
+  applyFee(tx, {
+    inputValues: opts.funding.map(f => f.utxo.satoshis),
+    unlockingSizes: opts.funding.map(() => UNLOCK_P2PKH),
+    changeVout,
+    satPerKb: opts.feePerKb ?? DEFAULT_FEE_PER_KB,
+  })
+  signFunding(tx, opts.key, opts.funding)
+
+  const changeSats = tx.outputs[changeVout]?.value ?? 0
+  return { tx, txId: tx.txid(), messageVout, notifyVout, changeVout: changeSats > 0 ? changeVout : null, changeSats }
+}
+
+async function toFundingInputs(_provider: WalletProvider, utxos: Utxo[]): Promise<FundingInput[]> {
+  return utxos.map(u => ({ utxo: u }))
+}
+
+/** Send a message on-chain to a recipient pubkey. Encrypted (authenticated ECIES) by default. */
+export async function sendMessage(provider: WalletProvider, key: Signer, params: {
+  toPubKeyHex: string
+  parts: Part[]
+  encrypt?: boolean
+  ref?: string
+  feePerKb?: number
+  /** Sender's self-asserted display alias, carried so the recipient can show @name. */
+  senderAlias?: string
+  /** Send time (UTC epoch ms); defaults to now. Carried so recipients can show + order by it. */
+  sentAt?: number
+}): Promise<{ txId: string; messageOutpoint: { txId: string; outputIndex: number } }> {
+  const feePerKb = params.feePerKb ?? DEFAULT_FEE_PER_KB
+  const envelope = await buildEnvelope({
+    senderPriv: key, recipientPubKeyHex: params.toPubKeyHex, parts: params.parts, encrypt: params.encrypt,
+    senderAlias: params.senderAlias, sentAt: params.sentAt ?? Date.now(),
+  })
+  const estFee = Math.ceil(((350 + envelope.length) * feePerKb) / 1000)
+  const target = 2 * PHARLAP_OUTPUT_SATS + estFee + 500
+  const selected = selectFunding(await getSafeUtxos(provider), target)
+  const funding = await toFundingInputs(provider, selected)
+
+  const r = await buildMessageTx({
+    key, funding, recipientPubKeyHex: params.toPubKeyHex, ref: params.ref, envelope, feePerKb,
+  })
+  await provider.broadcast(r.tx.hex())
+  provider.registerPendingTx(r.txId, selected.map(u => ({ txId: u.txId, outputIndex: u.outputIndex })),
+    r.changeVout != null ? { outputIndex: r.changeVout, satoshis: r.changeSats } : undefined)
+  return { txId: r.txId, messageOutpoint: { txId: r.txId, outputIndex: r.messageVout } }
+}
+
+export interface IncomingMessage {
+  txId: string
+  outputIndex: number
+  ref: string
+  senderPubKeyHex: string
+  encrypted: boolean
+  parts: Part[]
+  /** Sender's self-asserted alias (if they attached one). */
+  senderAlias?: string
+  /** Sender's self-asserted send time, UTC epoch ms (if attached) — display + tiebreak ordering. */
+  sentAt?: number
+  /** Block height of the message tx (0 = unconfirmed/unknown) — orders the inbox newest-first. */
+  height?: number
+}
+
+/**
+ * Find messages locked to us and open them. Candidate txs = address history ∪ getUtxos (mempool-aware,
+ * so an unconfirmed message surfaces immediately via its 1-sat notification UTXO). Outputs whose
+ * envelope can't be opened with our key are skipped.
+ */
+export async function scanIncomingMessages(provider: WalletProvider, recipientPriv: Signer): Promise<IncomingMessage[]> {
+  const myPub = toHex(recipientPriv.publicKey()).toLowerCase()
+  const candidateTxIds = new Set<string>()
+  const heightByTx = new Map<string, number>()
+  try { for (const h of await provider.getAddressHistory()) { candidateTxIds.add(h.txId); heightByTx.set(h.txId, h.blockHeight || 0) } } catch { /* best-effort */ }
+  try { for (const u of await provider.getUtxos()) candidateTxIds.add(u.txId) } catch { /* best-effort */ }
+
+  const found: IncomingMessage[] = []
+  const seen = new Set<string>()
+  for (const txId of candidateTxIds) {
+    let tx: Tx
+    try { tx = await provider.getSourceTransaction(txId) } catch { continue }
+    for (let i = 0; i < tx.outputs.length; i++) {
+      const parsed = parseMessageScript(LockingScript.fromBinary(tx.outputs[i].script))
+      if (parsed == null || parsed.recipientPubKeyHex.toLowerCase() !== myPub) continue
+      const key = `${txId}:${i}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const opened = await openEnvelope(parsed.fields.envelope, recipientPriv)
+      if (opened == null) continue // not openable with our key
+      found.push({
+        txId, outputIndex: i, ref: parsed.fields.ref,
+        senderPubKeyHex: opened.senderPubKeyHex, encrypted: opened.encrypted, parts: opened.parts,
+        senderAlias: opened.senderAlias, sentAt: opened.sentAt, height: heightByTx.get(txId) ?? 0,
+      })
+    }
+  }
+  // Newest first: unconfirmed (height 0/unknown) on top, then highest block height, then sender send-time.
+  // Finite sentinel for unconfirmed so ties compare to 0 (stable) rather than Infinity−Infinity = NaN.
+  const rank = (m: IncomingMessage): number => (m.height != null && m.height > 0 ? m.height : Number.MAX_SAFE_INTEGER)
+  return found.sort((a, b) => (rank(b) - rank(a)) || ((b.sentAt ?? 0) - (a.sentAt ?? 0)))
+}
