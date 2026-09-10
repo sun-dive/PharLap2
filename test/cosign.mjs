@@ -148,13 +148,9 @@ function assembled({ mySats, changeSats, extraOutputs = [] }) {
   ok(sig?.data != null && Signer.verifyInput(after, 0, me.lockingScript(), 5000, me.publicKey(), sig.data),
      '★★★ and the signature in the RETURNED bytes verifies — not merely assigned somewhere and lost')
 
-  /* ⚠⚠ A P2PKH INPUT IS TWO CLAIMS, AND CHECKING ONE IS NOT CHECKING BOTH. The script asks: does the
-     pushed key HASH to the hash in the lock, and does its signature verify. A signature can be perfectly
-     valid under a key that the locking script never authorised.
-     ⛔ THIS IS ALSO AN HONEST GAP AGAINST THE DEPLOYED TEST, which ran the input through a script
-       INTERPRETER and so checked both plus the opcodes. This repository has no interpreter, so the two
-       claims are asserted directly instead. That is most of the distance, not all of it, and the
-       shortfall is written here rather than left for someone to assume away. */
+  /* ⚠⚠ A P2PKH INPUT MAKES TWO CLAIMS: the pushed key hashes to the hash in the lock, and its
+     signature verifies. A signature can be valid under a key the lock never authorised, so both are
+     checked. ⛔ A script interpreter would also check the opcodes; this repo has none. */
   const pushedKey = chunks[1]?.data
   const lockHash = me.lockingScript().slice(3, 23)
   ok(pushedKey != null && toHex(pushedKey) === toHex(me.publicKey()),
@@ -203,20 +199,18 @@ function assembled({ mySats, changeSats, extraOutputs = [] }) {
 
 // ── ★★★ 8 · WHAT IS BEING FUNDED, AND HOW MUCH ─────────────────────────────────────────────────────
 //
-// ★★★ THIS IS WHY THE MODULE EXISTS AT ALL: to fund a covenant it cannot rebuild, including ones not
-//   written yet. ⚠ Without the check below the signer sees "105,000 sat · script · 61 bytes" and has no
-//   way to tell one script from another.
+// ⚠ Without this the signer sees "105,000 sat · script · 61 bytes" and cannot tell one script from
+//   another.
 //
-// ★★ THE DERIVATION NEEDS NO COVENANT CODE, WHICH IS THE POINT. A covenant top-up SPENDS the covenant
-//   and RE-CREATES it holding more — it has to, since a covenant that could be topped up without being
-//   spent would not be a covenant. ⇒ The same locked script therefore appears twice: as an input's
-//   source script and as an output. Matching those says "this adds N satoshis to THAT", and nothing
-//   here has to change when the next covenant arrives.
-const COVENANT = Uint8Array.of(0x51, 0x75, 0x51, 0x76, 0xa9, 0x14, ...new Array(20).fill(0xbe), 0x88, 0xac)
-const covHash = toHex(sha256(COVENANT).reverse())
+// ★★ THE DERIVATION KNOWS NOTHING ABOUT THE SCRIPT, WHICH IS THE POINT. Adding value to something
+//   already locked means SPENDING that output and RE-CREATING the same script holding more — an output
+//   cannot be edited in place. ⇒ So the same script appears twice: as an input's source, and as an
+//   output. Matching those says "this adds N satoshis to THAT", whatever THAT is.
+const LOCKED = Uint8Array.of(0x51, 0x75, 0x51, 0x76, 0xa9, 0x14, ...new Array(20).fill(0xbe), 0x88, 0xac)
+const lockedHash = toHex(sha256(LOCKED).reverse())
 
-/** a transaction that tops up a covenant: it SPENDS the covenant and re-creates it, larger */
-function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 14000, covScript = COVENANT } = {}) {
+/** a top-up: it SPENDS a locked output and re-creates the same script, larger */
+function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 14000, covScript = LOCKED } = {}) {
   const covParent = new Tx(1,
     [{ txid: txidToWire('22'.repeat(31) + '02'), vout: 0, script: Uint8Array.of(0x51), sequence: 0xffffffff }],
     [{ value: was, script: covScript }], 0)
@@ -241,29 +235,29 @@ function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 140
   const t = topUp()
   const a = CS.analyseCosign(t.rawTx, t.sources, me.address())
   ok(a.outputs[0].kind === 'continues',
-     '★★★ the covenant output is recognised as CONTINUING an input — not an opaque script')
+     '★★★ the locked output is recognised as CONTINUING an input — not an opaque script')
   ok(a.outputs[0].continuesInput === 1, '★★ …and it names which input it re-creates')
   ok(a.funding.length === 1 && a.funding[0].added === 100000,
-     `★★★ the amount being sent as funding is derived: ${a.funding[0]?.added?.toLocaleString()} sat`)
+     `★★★ the amount being added is derived: ${a.funding[0]?.added?.toLocaleString()} sat`)
   ok(a.funding[0].from === 5000 && a.funding[0].to === 105000,
      '★★ …stated as what it was and what it becomes, not just a delta')
-  ok(a.funding[0].scriptHash === covHash,
-     '★★★ …under the same script hash this wallet uses to FIND covenants — so it can be compared to the one intended')
+  ok(a.funding[0].scriptHash === lockedHash,
+     '★★★ …under a script hash, so it can be compared against the one intended')
   ok(!a.warnings.some(w => /does not otherwise touch/.test(w)),
      '★ a continuation raises no "where is this going" warning, because it is answered')
 }
 
 // ── ⛔ 9 · AN EXPECTATION IS A REFUSAL ───────────────────────────────────────────────────────────────
 // ⚠⚠ EVERYTHING ABOVE DERIVES WHAT A TRANSACTION DOES. It cannot know what the signer MEANT. A caller
-//   that knows which covenant it is funding says so, and a mismatch stops the signing.
+//   that knows what it is paying says so, and a mismatch stops the signing.
 {
   const t = topUp()
-  ok(CS.analyseCosign(t.rawTx, t.sources, me.address(), { scriptHash: covHash }).blockers.length === 0,
+  ok(CS.analyseCosign(t.rawTx, t.sources, me.address(), { scriptHash: lockedHash }).blockers.length === 0,
      '★★ naming the right script hash passes')
   const wrong = CS.analyseCosign(t.rawTx, t.sources, me.address(), { scriptHash: 'ab'.repeat(32) })
   ok(wrong.blockers.some(b => /does not add anything to/.test(b)),
-     '⛔★★★ naming a DIFFERENT covenant is refused — a correct signature on the wrong thing is the whole threat')
-  const tooMuch = CS.analyseCosign(t.rawTx, t.sources, me.address(), { scriptHash: covHash, maxFunding: 50000 })
+     '⛔★★★ naming a DIFFERENT script is refused — a correct signature on the wrong thing is the whole threat')
+  const tooMuch = CS.analyseCosign(t.rawTx, t.sources, me.address(), { scriptHash: lockedHash, maxFunding: 50000 })
   ok(tooMuch.blockers.some(b => /more than the/.test(b)),
      '⛔★★★ …and funding MORE than expected is refused, however right the destination')
   let threw = ''
@@ -273,22 +267,19 @@ function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 140
 
 // ── ⚠⚠ 10 · A FALLING VALUE IS NORMAL — UNTIL IT IS NOT ─────────────────────────────────────────────
 //
-// ⚠⚠⚠ THIS IS WHERE THE OBVIOUS RULE IS WRONG. A covenant may pay its own running costs out of the
-//   value it carries, so an ordinary spend can come out SMALLER and a top-up is simply one that came out
-//   larger. ⇒ Warning on any decrease fires in capitals on the normal case, which trains the signer to
-//   click through the warning that matters. The first version of this did exactly that.
-//
-// ★★★ THE FEE IS THE LINE, and it is arithmetic on this transaction alone. Value that went to the MINER
-//   is accounted for; value that left BEYOND the fee went to another output. ⚠ Nothing here claims what
-//   any particular covenant permits — that is the covenant's business, not the signer's.
+// ⚠⚠ A locked output may pay its own costs out of what it carries, so an ordinary spend can come out
+//   SMALLER and a top-up is simply one that came out larger. Warning on any decrease fires on the
+//   normal case and trains the signer to click through the warning that matters.
+// ★★★ THE FEE IS THE LINE: value that went to the MINER is accounted for; value beyond it went to
+//   another output. Arithmetic on this transaction alone.
 {
-  // an ordinary tick: the covenant shrinks by exactly what the transaction pays the miner
+  // an ordinary spend: the locked output shrinks by exactly what the transaction pays the miner
   const tick = topUp({ was: 105000, becomes: 104800, myCoin: 0, changeSats: 0 })
   const a = CS.analyseCosign(tick.rawTx, tick.sources, me.address())
-  ok(a.funding[0].added === -200, '★★ a tick’s value falls, and the fall is derived')
+  ok(a.funding[0].added === -200, '★★ the value falls, and the fall is derived')
   ok(a.fee === 200, '…and it is exactly the fee')
   ok(!a.warnings.some(w => /LESS than input/.test(w)),
-     '★★★ a covenant paying its OWN fee raises no alarm — this is what normal operation looks like')
+     '★★★ an output paying its OWN fee raises no alarm — this is what normal operation looks like')
 
   // value leaving beyond the fee: it went to an output, not to a miner
   const drained = topUp({ was: 105000, becomes: 5000, myCoin: 2000, changeSats: 101000 })
@@ -297,20 +288,14 @@ function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 140
   ok(b.warnings.some(w => /LESS than input/.test(w)),
      '⚠⚠★★★ …and value leaving BEYOND the fee is called out — somebody took it')
 
-  /* ★★★ THE BOUNDARY IS WHERE THIS HAS TO BE EXACT, and a large drain does not test it. Here the
-     covenant falls by 300 while the transaction pays 200, so exactly 100 sat went to an output rather
-     than to a miner.
-     ⚠ Written because a mutation that double-counted the fee SURVIVED the large-drain case above — the
-       drain was so far past the threshold that getting the threshold wrong changed nothing.
-     ⚠⚠ AND THIS IS A TEST OF THE CHECK, NOT A CLAIM ABOUT ANY DEPLOYED SCRIPT. A first draft of this
-       comment described it as a realistic attack and reasoned about a live covenant's fee arithmetic to
-       do so. That was wrong twice over: wrong on the facts, and not this module's business either way.
-       ⇒ What is being tested is that the THRESHOLD is the fee and not zero. Whether a given covenant
-         would permit such a spend is for that covenant to enforce. */
+  /* ★★★ THE BOUNDARY: the locked output falls 300 while the transaction pays 200, so exactly 100 sat went
+     to an output rather than to a miner. ⚠ A large drain does not test this — it is so far past the
+     threshold that getting the threshold wrong changes nothing. What is under test is that the
+     threshold is the FEE and not zero. */
   const siphon = topUp({ was: 105000, becomes: 104700, myCoin: 1000, changeSats: 1100 })
   const c = CS.analyseCosign(siphon.rawTx, siphon.sources, me.address())
   ok(c.fee === 200 && c.funding[0].added === -300,
-     `★★ the covenant falls 300 while the transaction pays 200 (fee ${c.fee}, delta ${c.funding[0].added})`)
+     `★★ the locked output falls 300 while the transaction pays 200 (fee ${c.fee}, delta ${c.funding[0].added})`)
   ok(c.warnings.some(w => /100 sat LESS than input/.test(w)),
      '⚠★★★ …and exactly the 100 sat that went somewhere other than the miner is named')
 }
@@ -320,13 +305,13 @@ function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 140
 //   the document. That is not necessarily an attack — but it is the one case where the signer is being
 //   asked to take something on trust, so it is said out loud.
 {
-  const t = assembled({ mySats: 100000, changeSats: 5800, extraOutputs: [{ value: 90000, script: COVENANT }] })
+  const t = assembled({ mySats: 100000, changeSats: 5800, extraOutputs: [{ value: 90000, script: LOCKED }] })
   const a = CS.analyseCosign(t.rawTx, t.sources, me.address())
   ok(a.outputs[2].kind === 'script' && a.outputs[2].continuesInput === undefined,
      'an output matching no input stays an opaque script')
   ok(a.warnings.some(w => /does not otherwise touch/.test(w)),
      '⚠★★ …and the signer is told that 90,000 sat is going somewhere nothing here explains')
-  ok(a.outputs[2].scriptHash === covHash, '★ its identity is still shown, so it can be looked up')
+  ok(a.outputs[2].scriptHash === lockedHash, '★ its identity is still shown, so it can be looked up')
 }
 
 rmSync(tmp, { recursive: true, force: true })

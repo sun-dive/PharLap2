@@ -162,10 +162,7 @@ const enforcedSliceBytes = (tx: Tx, enforced: number): number[] =>
  * ⇒ Hence two checks rather than one. **Over-estimating is safe and under-estimating is not**: a fee
  *   computed from too small a size produces a transaction that is well-formed, under-paid, and simply
  *   never confirms — with nothing in it to say why.
- *
- * ★ This was not reasoned out in advance. The strict version was written first, applied to all three,
- *   and the transfer builder failed on its FIRST run at 1122 → 1121 bytes. The guard found it, which is
- *   the argument for having it in the code rather than only in a test.
+
  */
 function assertExactLength(sized: number, actual: number, what: string): void {
   if (sized !== actual) {

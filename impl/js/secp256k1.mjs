@@ -18,9 +18,8 @@
  * randomise what the ladder sees, so its timing stops correlating with the secret even though every
  * step is still variable-cost.
  *
- * ⚠⚠ AND A FIXED-PATTERN LADDER IS A REAL ALTERNATIVE, NOT AN IMPOSSIBLE ONE. An earlier version of
- * this note said the answer "is not a clever ladder", which was overstated. A Montgomery ladder does one
- * addition and one doubling per bit whichever way the bit goes, so its cost stops tracking the scalar.
+ * ⚠⚠ A FIXED-PATTERN LADDER IS THE OTHER HALF. A Montgomery ladder does one addition and one doubling
+ * per bit whichever way the bit goes, so its cost stops tracking the scalar.
  *   ⇒ THREE THINGS LEAK, AND THEY ARE NOT THE SAME PROBLEM:
  *     | which bits are set | ✅ the ladder hides it outright — a plain double-and-add works only on the
  *       1 bits, so its cost tracks the scalar's Hamming weight.                                     |
@@ -31,11 +30,10 @@
  *     | per-operation cost | ⛔ NEITHER defence touches this, and nothing in JavaScript can. A BigInt
  *       multiply costs what its operands cost.                                                      |
  *
- * ⚠⚠⚠ AND A FIXED WIDTH ALONE DOES NOT DO IT, WHICH IS EASY TO GET WRONG AND WAS NEARLY WRITTEN HERE.
- *   Padding the loop to a constant makes the OPERATION COUNT constant, but the leading zero bits are
- *   cheap: `R0` is still the point at infinity and both formulas return early. Measured at a fixed
- *   width of 321, a 256-bit scalar cost 1.53 ms and a 64-bit one 0.44 ms — the count was identical and
- *   the TIME was not.
+ * ⚠⚠⚠ A FIXED WIDTH ALONE DOES NOT DO IT. Padding the loop to a constant makes the OPERATION COUNT
+ *   constant, but leading zero bits are cheap: `R0` is still infinity and both formulas return early.
+ *   Measured at width 321, a 256-bit scalar cost 1.53 ms and a 64-bit one 0.44 ms — same count, and not
+ *   the same time.
  *   ⇒ ★ BLINDING IS WHAT ACTUALLY CLOSES IT: `k + b·n` with an 8-byte `b` is ~320 bits whatever `k`
  *     was, so there are no leading zeros to be cheap. The fixed width then makes that structural
  *     rather than a happy consequence of `b` being large.

@@ -55,7 +55,7 @@ export interface CosignInputView {
   mine: boolean
   /** Already carries an unlocking script — the covenant's input, or a co-signer who went before us. */
   complete: boolean
-  /** The script being spent, hashed the way this wallet looks covenants up. Null with no source. */
+  /** The script being spent, hashed the way this wallet names a script. Null with no source. */
   scriptHash: string | null
 }
 
@@ -68,8 +68,8 @@ export interface CosignOutputView {
   /** OP_RETURN payload decoded as UTF-8. DISPLAY AS TEXT — never linkify; these are stranger's bytes. */
   text?: string
   scriptSize: number
-  /** ★ The output's identity, hashed the way this wallet looks covenants up — so a signer can compare it
-   *  against the thing they MEANT to fund without this module knowing what that thing is. */
+  /** ★ The output's identity — so a signer can compare it against the thing they MEANT to pay, without
+   *  this module knowing what that thing is. */
   scriptHash: string
   /** Index of the input this output re-creates, when it re-creates one. */
   continuesInput?: number
@@ -78,18 +78,18 @@ export interface CosignOutputView {
 }
 
 /**
- * ★★★ WHAT IS ACTUALLY BEING FUNDED, DERIVED WITHOUT KNOWING WHAT IT IS.
+ * ★★★ WHAT IS BEING TOPPED UP, DERIVED WITHOUT KNOWING WHAT IT IS.
  *
- * A covenant top-up SPENDS the covenant and RE-CREATES it carrying more satoshis. It has to: a covenant
- * that could be topped up without being spent would not be a covenant.
+ * A transaction that adds value to something already locked has to SPEND that output and RE-CREATE the
+ * same script carrying more. There is no other way: an output cannot be edited in place.
  *
- * ⇒ So the same locked script appears twice in the transaction: as the script of an input's source, and
- *   as an output. Matching those is enough to say "this transaction adds N satoshis to THAT thing" —
- *   with no covenant code here, and nothing that has to be updated for the next one.
+ * ⇒ So the same locked script appears twice: as the script of an input's source, and as an output.
+ *   Matching those says "this adds N satoshis to THAT", whatever THAT is — a script this module has
+ *   never seen and will never need to understand.
  *
- * ⚠⚠ WITHOUT THIS THE SIGNER SEES "12,345 sat · script · 201 bytes" AND CANNOT TELL WHAT IT IS. The fee
- *   warning already stops the surplus going to a miner; this is the other half — knowing that the money
- *   leaving the wallet arrives where it was meant to, and how much of it does.
+ * ⚠⚠ WITHOUT IT THE SIGNER SEES "12,345 sat · script · 201 bytes" AND CANNOT TELL WHAT IT IS. The fee
+ *   warning stops a surplus going to a miner; this is the other half — that the money leaving the
+ *   wallet arrives where it was meant to, and how much of it does.
  */
 export interface CosignFunding {
   outputIndex: number
@@ -132,8 +132,8 @@ export interface CosignAnalysis {
 
 /**
  * What the caller believes it is signing. ⚠ Optional, and every field is a REFUSAL when it does not
- * hold — not a warning. A caller that knows which covenant it is funding should say so, because the
- * derivation below can only report what a transaction does, never whether that was the intention.
+ * hold — not a warning. A caller that knows what it is paying should say so, because the derivation
+ * below can only report what a transaction does, never whether that was the intention.
  */
 export interface CosignExpectation {
   /** The script hash the funding must arrive at. */
@@ -241,12 +241,9 @@ export function analyseCosign(
        (or a withdrawal) of that thing, and the difference in value is the amount at stake. ⚠ The kind is
        only overridden where it would otherwise be an opaque `script`: an output paying this wallet stays
        `yours`, because that is the more useful thing to tell a signer. */
-    /* ⚠⚠ ONLY AN OTHERWISE-OPAQUE SCRIPT COUNTS, and the first version of this did not say so. A change
-       output pays the same address as the funding input it came from, so matching scripts blindly
-       reports ordinary change as a covenant top-up — every wallet's change, on every transaction. The
-       test caught it immediately.
-       ⇒ A covenant is a non-standard script by construction. An output that is already recognisable —
-         ours, a plain address, a data push — is not the thing this is looking for. */
+    /* ⚠ ONLY AN OTHERWISE-OPAQUE SCRIPT COUNTS. Change pays the same address as the funding input it
+       came from, so matching scripts blindly reports ordinary change as a top-up. Anything already
+       recognisable — ours, an address, a data push — is not what this is looking for. */
     const scriptHash = scriptHashOf(o.script)
     const continuesInput = kind === 'script' ? spentBy.get(scriptHash) : undefined
     const from = continuesInput === undefined ? null : inputs[continuesInput].satoshis
@@ -311,16 +308,11 @@ export function analyseCosign(
 
   /* ★★★ THE SECOND HALF OF THE DEFENCE. The fee warning stops a surplus going to a miner; this says
      where the rest of the money went. Neither is visible on the face of the document. */
-  /* ⚠⚠⚠ A FALLING VALUE IS NOT BY ITSELF WRONG, AND THE FIRST VERSION OF THIS ASSUMED IT WAS. A
-     covenant may pay its own running costs out of the value it carries, so coming out smaller can be
-     ordinary operation. Warning on every decrease fires in capitals on the normal case, which is the
-     cry-wolf failure this module is careful about everywhere else.
-     ★ THE LINE IS THE FEE, and it is pure arithmetic on the transaction in front of us. Value that left
-       and went to the MINER is accounted for. Value that left BEYOND the fee went to one of the other
-       outputs — it did not evaporate, somebody received it.
-     ⚠ Deliberately says nothing about whether any particular covenant permits that. This module knows
-       what a transaction DOES; what a covenant ALLOWS is the covenant's business, and asserting it from
-       here would be a claim about somebody else's deployed script. */
+  /* ⚠⚠ A FALLING VALUE IS NOT BY ITSELF WRONG — a locked output may pay its own costs out of what it
+     carries, so warning on every decrease fires on the normal case.
+     ★ THE LINE IS THE FEE. Value that went to the MINER is accounted for; value that left BEYOND the fee
+       went to another output. Arithmetic on this transaction alone: what the script it came from allows
+       is that script's business, not the signer's. */
   for (const f of funding) {
     const leaked = -f.added - Math.max(fee, 0)
     if (leaked > 0) {
@@ -334,8 +326,8 @@ export function analyseCosign(
   }
 
   /* ⚠⚠ AN EXPECTATION IS A REFUSAL, NOT A WARNING. Everything above DERIVES what a transaction does; it
-     cannot know what the caller MEANT. A caller that knows which covenant it is funding says so, and a
-     mismatch stops the signing rather than decorating it. */
+     cannot know what the caller MEANT. A caller that knows what it is paying says so, and a mismatch
+     stops the signing rather than decorating it. */
   if (expect?.scriptHash != null) {
     const want = expect.scriptHash.toLowerCase()
     const hit = funding.find(f => f.scriptHash.toLowerCase() === want)
@@ -384,16 +376,8 @@ export async function cosignTransaction(
     tx.inputs[i].script = key.unlockP2PKH(tx, i, script, value)
   }
 
-  /* ⛔⛔ A TRAP THAT USED TO LIVE HERE IS GONE, AND IT IS WORTH SAYING WHY RATHER THAN JUST DELETING IT.
-     The removed library's transaction kept the bytes it had parsed in a cache, and serializing returned
-     that cache — so `toHex()` on a parsed transaction reproduced the ORIGINAL bytes however its inputs
-     had been changed since. Assigning an unlocking script directly reached past every place the library
-     invalidated that cache itself.
-     ⇒ The failure was the dangerous kind: signing appeared to succeed, a txid came back, and what was
-       handed on was the UNSIGNED transaction. It was caught only because a test ran the result through
-       an interpreter instead of trusting that the assignment had taken.
-     ★ Our transaction holds no such cache — it serializes from its fields, every time. The bug is not
-       fixed here, it is absent, and this note exists so nobody reintroduces a cache without knowing
-       what one costs. */
+  /* ⛔ NO SERIALIZATION CACHE, DELIBERATELY. The removed library kept the bytes it parsed and served
+     them back, so assigning an unlocking script could return a txid while handing on the UNSIGNED
+     transaction. This one serializes from its fields every time. Do not add a cache. */
   return { txId: tx.txid(), rawTx: tx.hex(), analysis }
 }
