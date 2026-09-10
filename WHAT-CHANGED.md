@@ -110,6 +110,28 @@ honours `Retry-After`. ⚠ Without one, a rate limit surfaces as a verification 
 indistinguishable from a bad proof. **A verifier that reports "invalid" when it was merely throttled is
 worse than one that waits.**
 
+### ⛔ The second covenant version is gone
+
+Phar Lap carries two edition covenants: the fixed-fee one every collection uses, and a percentage-priced
+one with a mutable 8-byte price field. **The second was never exposed by the interface and never
+minted** - `app.ts` says so in a comment, its UI block ships `hidden`, and the only mint path the wallet
+offers builds the first. Phar Lap 2 does not carry it: 172 lines out of `covenant.ts`, and the branches
+that served it out of `verify.ts`.
+
+⚠ **It cost more than it weighed.** Reading the codebase, the dead version looked like the live one, and
+reasoning from it produced wrong conclusions about how pricing works - more than once, in a single
+session. A second implementation that cannot run is not neutral; it is a decoy.
+
+★ Two things went with it that are worth naming:
+
+| removed | why |
+|---|---|
+| `stateData` on the edition lock | accepted by the builder and **never read** - an argument that looks like it configures the script and does not. Dropping it cannot change a byte |
+| the price exemption in `verify` | 8 bytes were copied from the real script into the derived one before comparing. It was gated on the dead version, so for every edition that exists the comparison was **already** exact. Removing it deletes a branch that could not fire |
+
+⇒ Verified by the byte-identity suites: the frozen mainnet vectors still match exactly, which is what
+proves v1 script generation was untouched.
+
 ### ★ Every secret scalar goes through a fixed-width ladder, blinded
 
 Phar Lap 1 handed signing to a library. Phar Lap 2 signs with its own curve code, so the timing question

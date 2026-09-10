@@ -49,7 +49,7 @@ const parentIdOf = (input: { txid?: Uint8Array } | undefined): string | undefine
 const lockOf = (o: { script: Uint8Array } | undefined) =>
   o === undefined ? undefined : LockingScript.fromBinary(o.script)
 import { parseTokenScript, parseTemplateScript } from './tokenCodec.ts'
-import { parseEditionAny, buildHolderEditionScript, EDITION_PRICE_SCRIPT_OFFSET } from './covenant.ts'
+import { parseEditionScript, buildHolderEditionScript } from './covenant.ts'
 
 /**
  * Where block headers come from: does this merkle root belong to the block at this height.
@@ -195,12 +195,9 @@ export interface EditionVerifyResult {
   collectionName?: string
   /** This token's tx spends TX1 directly — i.e. it IS the publisher's original genesis mint. */
   isGenesis?: boolean
-  isV2?: boolean
   /** Authoritative economics, proven equal to TX1's committed covenant (only set when valid). */
   publisherFeeSats?: number
   holderFeeSats?: number
-  pBps?: number
-  priceSats?: number
 }
 
 const bytesEqual = (a: number[], b: number[]): boolean => a.length === b.length && a.every((x, i) => x === b[i])
@@ -222,7 +219,7 @@ export async function verifyEditionCovenant(
   deps: VerifyDeps,
 ): Promise<EditionVerifyResult> {
   const lock = lockOf(tokenTx.outputs[outputIndex])
-  const ed = lock != null ? parseEditionAny(lock) : null
+  const ed = lock != null ? parseEditionScript(lock) : null
   if (ed == null) return { valid: false, reason: 'output is not a PHAR LAP edition covenant' }
   const collectionId = ed.tx1RefHex
 
@@ -245,10 +242,11 @@ export async function verifyEditionCovenant(
     expected = buildHolderEditionScript(hexBytes(covenantHex), hexBytes(collectionId), hexBytes(ed.ownerPubKeyHex))
   } catch { return { valid: false, reason: 'collection template is malformed', collectionId, collectionName: tokenName } }
   const actual = lock!.toBinary()
-  // v2: the reseller's price is legitimately per-edition — copy it across so it isn't a false mismatch.
-  if (ed.isV2 && expected.length === actual.length) {
-    for (let i = 0; i < 8; i++) expected[EDITION_PRICE_SCRIPT_OFFSET + i] = actual[EDITION_PRICE_SCRIPT_OFFSET + i]
-  }
+  /* ⚠⚠ THE COMPARISON IS NOW EXACT, AND THAT IS A STRENGTHENING. A block here used to copy an 8-byte
+     price field across before comparing, because a second covenant version treated the price as
+     per-edition and a difference there was not a forgery. That version is gone, so every byte of a
+     genuine edition is reconstructible from the collection's committed template plus the owner's key.
+     ⇒ Nothing about a real edition may differ from what we derive. Any difference is a counterfeit. */
   if (!bytesEqual(expected, actual)) {
     return { valid: false, reason: 'covenant does NOT match this collection’s committed rules — possible counterfeit or altered fees', collectionId, collectionName: tokenName }
   }
@@ -261,10 +259,8 @@ export async function verifyEditionCovenant(
     valid: true,
     reason: isGenesis ? 'genuine genesis edition (covenant matches the collection’s committed rules)'
       : 'genuine edition (covenant matches the collection’s committed rules)',
-    collectionId, collectionName: tokenName, isGenesis, isV2: ed.isV2,
-    publisherFeeSats: ed.isV2 ? undefined : ed.terms.publisherFeeSats,
-    holderFeeSats: ed.isV2 ? undefined : ed.terms.holderFeeSats,
-    pBps: ed.isV2 ? ed.terms.pBps : undefined,
-    priceSats: ed.isV2 ? ed.priceSats : undefined,
+    collectionId, collectionName: tokenName, isGenesis,
+    publisherFeeSats: ed.terms.publisherFeeSats,
+    holderFeeSats: ed.terms.holderFeeSats,
   }
 }
