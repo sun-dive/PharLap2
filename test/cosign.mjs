@@ -23,6 +23,7 @@ import { Tx } from '../impl/js/transaction.mjs'
 import { Script } from '../impl/js/script.mjs'
 import { scriptForAddress } from '../impl/js/address.mjs'
 import { hash160 } from '../impl/js/bip32.mjs'
+import { sha256 } from '@noble/hashes/sha2.js'
 import { toHex, fromUtf8, concat } from '../impl/js/bytes.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -198,6 +199,101 @@ function assembled({ mySats, changeSats, extraOutputs = [] }) {
   const naive = Math.round((a.fee * 1000) / a.size)
   ok(a.feePerKb < naive,
      `★★★ …so the rate reads ${a.feePerKb} sat/KB rather than the alarmist ${naive} — the warning stays worth reading`)
+}
+
+// ── ★★★ 8 · WHAT IS BEING FUNDED, AND HOW MUCH ─────────────────────────────────────────────────────
+//
+// ★★★ THIS IS WHY THE MODULE EXISTS AT ALL: to fund the Bitcoin Battery, or the racers' fuel depot, or
+//   the next covenant nobody has written yet. ⚠ Without the check below the signer sees "105,000 sat ·
+//   script · 61 bytes" and has no way to tell the battery from anything else with a script in it.
+//
+// ★★ THE DERIVATION NEEDS NO COVENANT CODE, WHICH IS THE POINT. A covenant top-up SPENDS the covenant
+//   and RE-CREATES it holding more — it has to, since a covenant that could be topped up without being
+//   spent would not be a covenant. ⇒ The same locked script therefore appears twice: as an input's
+//   source script and as an output. Matching those says "this adds N satoshis to THAT", and nothing
+//   here has to change when the next covenant arrives.
+const COVENANT = Uint8Array.of(0x51, 0x75, 0x51, 0x76, 0xa9, 0x14, ...new Array(20).fill(0xbe), 0x88, 0xac)
+const covHash = toHex(sha256(COVENANT).reverse())
+
+/** a transaction that tops up a covenant: it SPENDS the covenant and re-creates it, larger */
+function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 14000, covScript = COVENANT } = {}) {
+  const covParent = new Tx(1,
+    [{ txid: txidToWire('22'.repeat(31) + '02'), vout: 0, script: Uint8Array.of(0x51), sequence: 0xffffffff }],
+    [{ value: was, script: covScript }], 0)
+  const mine = fundingTx(me, myCoin)
+  const tx = new Tx(1, [
+    { txid: txidToWire(mine.txid()), vout: 0, script: new Uint8Array(0), sequence: 0xffffffff },
+    { txid: txidToWire(covParent.txid()), vout: 0, script: Uint8Array.of(0x51), sequence: 0xffffffff },
+  ], [
+    { value: becomes, script: covScript },
+    { value: changeSats, script: me.lockingScript() },
+  ], 0)
+  return {
+    rawTx: tx.hex(),
+    sources: [
+      { txId: mine.txid(), sourceTxHex: mine.hex() },
+      { txId: covParent.txid(), sourceTxHex: covParent.hex() },
+    ],
+  }
+}
+
+{
+  const t = topUp()
+  const a = CS.analyseCosign(t.rawTx, t.sources, me.address())
+  ok(a.outputs[0].kind === 'continues',
+     '★★★ the covenant output is recognised as CONTINUING an input — not an opaque script')
+  ok(a.outputs[0].continuesInput === 1, '★★ …and it names which input it re-creates')
+  ok(a.funding.length === 1 && a.funding[0].added === 100000,
+     `★★★ the amount being sent as funding is derived: ${a.funding[0]?.added?.toLocaleString()} sat`)
+  ok(a.funding[0].from === 5000 && a.funding[0].to === 105000,
+     '★★ …stated as what it was and what it becomes, not just a delta')
+  ok(a.funding[0].scriptHash === covHash,
+     '★★★ …under the same script hash this wallet uses to FIND covenants — so it can be compared to the one intended')
+  ok(!a.warnings.some(w => /does not otherwise touch/.test(w)),
+     '★ a continuation raises no "where is this going" warning, because it is answered')
+}
+
+// ── ⛔ 9 · AN EXPECTATION IS A REFUSAL ───────────────────────────────────────────────────────────────
+// ⚠⚠ EVERYTHING ABOVE DERIVES WHAT A TRANSACTION DOES. It cannot know what the signer MEANT. A caller
+//   that knows which covenant it is funding says so, and a mismatch stops the signing.
+{
+  const t = topUp()
+  ok(CS.analyseCosign(t.rawTx, t.sources, me.address(), { scriptHash: covHash }).blockers.length === 0,
+     '★★ naming the right script hash passes')
+  const wrong = CS.analyseCosign(t.rawTx, t.sources, me.address(), { scriptHash: 'ab'.repeat(32) })
+  ok(wrong.blockers.some(b => /does not add anything to/.test(b)),
+     '⛔★★★ naming a DIFFERENT covenant is refused — a correct signature on the wrong thing is the whole threat')
+  const tooMuch = CS.analyseCosign(t.rawTx, t.sources, me.address(), { scriptHash: covHash, maxFunding: 50000 })
+  ok(tooMuch.blockers.some(b => /more than the/.test(b)),
+     '⛔★★★ …and funding MORE than expected is refused, however right the destination')
+  let threw = ''
+  try { await CS.cosignTransaction(t.rawTx, t.sources, me, { scriptHash: 'ab'.repeat(32) }) } catch (e) { threw = String(e.message) }
+  ok(threw !== '', '⛔ signing honours the expectation rather than merely reporting it')
+}
+
+// ── ⚠⚠ 10 · A WITHDRAWAL IS NOT A TOP-UP ────────────────────────────────────────────────────────────
+// ⚠ The same shape with the numbers reversed drains the covenant. It is a legitimate transaction and
+//   this module does not refuse it — but a signer who thinks they are funding something must be told.
+{
+  const t = topUp({ was: 105000, becomes: 5000, myCoin: 2000, changeSats: 101000 })
+  const a = CS.analyseCosign(t.rawTx, t.sources, me.address())
+  ok(a.funding[0].added === -100000, '★★ the direction is derived, not assumed')
+  ok(a.warnings.some(w => /TAKES .* OUT of the script/.test(w)),
+     '⚠⚠★★★ …and a withdrawal dressed as a funding transaction is called out in capitals')
+}
+
+// ── ⚠ 11 · MONEY GOING SOMEWHERE WITH NO PRECEDENT ──────────────────────────────────────────────────
+// ⚠⚠ AN OUTPUT PAYING A SCRIPT THE TRANSACTION DOES NOT ALSO SPEND cannot be explained by anything in
+//   the document. That is not necessarily an attack — but it is the one case where the signer is being
+//   asked to take something on trust, so it is said out loud.
+{
+  const t = assembled({ mySats: 100000, changeSats: 5800, extraOutputs: [{ value: 90000, script: COVENANT }] })
+  const a = CS.analyseCosign(t.rawTx, t.sources, me.address())
+  ok(a.outputs[2].kind === 'script' && a.outputs[2].continuesInput === undefined,
+     'an output matching no input stays an opaque script')
+  ok(a.warnings.some(w => /does not otherwise touch/.test(w)),
+     '⚠★★ …and the signer is told that 90,000 sat is going somewhere nothing here explains')
+  ok(a.outputs[2].scriptHash === covHash, '★ its identity is still shown, so it can be looked up')
 }
 
 rmSync(tmp, { recursive: true, force: true })

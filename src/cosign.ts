@@ -39,7 +39,7 @@ import { p2pkhScript, scriptForAddress } from '../impl/js/address.mjs'
 import { b58check } from '../impl/js/bip32.mjs'
 import { wireToTxid } from '../impl/js/signer.mjs'
 import { toHex } from '../impl/js/bytes.mjs'
-import { hexBytes, utf8Of } from './bytes.ts'
+import { hexBytes, utf8Of, sha256Bytes, hexOf } from './bytes.ts'
 import type { Signer } from '../impl/js/signer.mjs'
 
 /** A source transaction for one of the inputs — needed for its value and its locking script. */
@@ -55,16 +55,52 @@ export interface CosignInputView {
   mine: boolean
   /** Already carries an unlocking script — the covenant's input, or a co-signer who went before us. */
   complete: boolean
+  /** The script being spent, hashed the way this wallet looks covenants up. Null with no source. */
+  scriptHash: string | null
 }
 
 export interface CosignOutputView {
   index: number
   satoshis: number
-  kind: 'yours' | 'address' | 'data' | 'script'
+  /** `continues` = the same locked script one of the inputs is spending. See FUNDING below. */
+  kind: 'yours' | 'address' | 'data' | 'script' | 'continues'
   address?: string
   /** OP_RETURN payload decoded as UTF-8. DISPLAY AS TEXT — never linkify; these are stranger's bytes. */
   text?: string
   scriptSize: number
+  /** ★ The output's identity, hashed the way this wallet looks covenants up — so a signer can compare it
+   *  against the thing they MEANT to fund without this module knowing what that thing is. */
+  scriptHash: string
+  /** Index of the input this output re-creates, when it re-creates one. */
+  continuesInput?: number
+  /** Satoshis this output adds to (or, if negative, takes from) the input it continues. */
+  addedSats?: number
+}
+
+/**
+ * ★★★ WHAT IS ACTUALLY BEING FUNDED, DERIVED WITHOUT KNOWING WHAT IT IS.
+ *
+ * A covenant top-up SPENDS the covenant and RE-CREATES it carrying more satoshis — the battery, the
+ * racers' fuel depot, and every covenant after them work this way, because a covenant that could be
+ * topped up without being spent would not be a covenant.
+ *
+ * ⇒ So the same locked script appears twice in the transaction: as the script of an input's source, and
+ *   as an output. Matching those is enough to say "this transaction adds N satoshis to THAT thing",
+ *   with no battery code, no depot code, and nothing that has to be updated for the next covenant.
+ *
+ * ⚠⚠ WITHOUT THIS THE SIGNER SEES "12,345 sat · script · 201 bytes" AND CANNOT TELL WHAT IT IS. The fee
+ *   warning already stops the surplus going to a miner; this is the other half — knowing that the money
+ *   leaving the wallet arrives where it was meant to, and how much of it does.
+ */
+export interface CosignFunding {
+  outputIndex: number
+  inputIndex: number
+  /** The shared identity of the input being spent and the output re-creating it. */
+  scriptHash: string
+  from: number
+  to: number
+  /** Negative means value is being TAKEN OUT, not put in. */
+  added: number
 }
 
 export interface CosignAnalysis {
@@ -91,6 +127,20 @@ export interface CosignAnalysis {
   warnings: string[]
   /** Refusals. Non-empty means `cosignTransaction` will throw. */
   blockers: string[]
+  /** Every locked script this transaction re-creates, and what it adds to each. */
+  funding: CosignFunding[]
+}
+
+/**
+ * What the caller believes it is signing. ⚠ Optional, and every field is a REFUSAL when it does not
+ * hold — not a warning. A caller that knows which covenant it is funding should say so, because the
+ * derivation below can only report what a transaction does, never whether that was the intention.
+ */
+export interface CosignExpectation {
+  /** The script hash the funding must arrive at. */
+  scriptHash?: string
+  /** The most this transaction may add to it. */
+  maxFunding?: number
 }
 
 /** What filling in one blank costs in bytes: push(72-byte signature) + push(33-byte public key). */
@@ -99,6 +149,9 @@ const SIGNED_P2PKH_INPUT_BYTES = 107
 const FEE_PER_KB_POLICY = 100
 const FEE_PER_KB_NOTABLE = FEE_PER_KB_POLICY * 2
 const FEE_PER_KB_ALARMING = FEE_PER_KB_POLICY * 10
+
+/** ⚠ The convention this wallet uses everywhere to name a script: SHA-256, byte-reversed. */
+const scriptHashOf = (script: Uint8Array): string => hexOf(sha256Bytes(Array.from(script)).reverse())
 
 /** Decode an OP_FALSE OP_RETURN <data> payload as text, or null if this is not a data output. */
 function dataPayload(scriptHex: string): string | null {
@@ -124,7 +177,9 @@ function dataPayload(scriptHex: string): string | null {
  * Work out what signing this transaction would actually do to this wallet. Pure — no network, no key,
  * so it runs on the offline box and is safe to call before the signer has committed to anything.
  */
-export function analyseCosign(rawTx: string, sources: CosignSource[], address: string): CosignAnalysis {
+export function analyseCosign(
+  rawTx: string, sources: CosignSource[], address: string, expect?: CosignExpectation,
+): CosignAnalysis {
   const tx = Tx.parse(rawTx)
   const mineLock = toHex(scriptForAddress(address))
 
@@ -156,8 +211,14 @@ export function analyseCosign(rawTx: string, sources: CosignSource[], address: s
       satoshis: out?.value ?? null,
       mine: out != null && toHex(out.script) === mineLock,
       complete,
+      scriptHash: out == null ? null : scriptHashOf(out.script),
     }
   })
+
+  /* ⚠ Index the inputs by the script they SPEND, so an output re-creating one can be recognised. Built
+     from the verified sources only — an input whose source was missing or forged is already a blocker. */
+  const spentBy = new Map<string, number>()
+  inputs.forEach(i => { if (i.scriptHash != null && !spentBy.has(i.scriptHash)) spentBy.set(i.scriptHash, i.index) })
 
   const outputs: CosignOutputView[] = tx.outputs.map((o, index) => {
     const hex = toHex(o.script)
@@ -177,8 +238,33 @@ export function analyseCosign(rawTx: string, sources: CosignSource[], address: s
         try { addr = b58check(Uint8Array.from([0x00, ...hexBytes(m[1])])) } catch { addr = undefined }
       }
     }
-    return { index, satoshis: o.value, kind, address: addr, text: text ?? undefined, scriptSize: o.script.length }
+    /* ★★★ DOES THIS OUTPUT RE-CREATE SOMETHING THIS TRANSACTION IS SPENDING? If so, this is a top-up
+       (or a withdrawal) of that thing, and the difference in value is the amount at stake. ⚠ The kind is
+       only overridden where it would otherwise be an opaque `script`: an output paying this wallet stays
+       `yours`, because that is the more useful thing to tell a signer. */
+    /* ⚠⚠ ONLY AN OTHERWISE-OPAQUE SCRIPT COUNTS, and the first version of this did not say so. A change
+       output pays the same address as the funding input it came from, so matching scripts blindly
+       reports ordinary change as a covenant top-up — every wallet's change, on every transaction. The
+       test caught it immediately.
+       ⇒ A covenant is a non-standard script by construction. An output that is already recognisable —
+         ours, a plain address, a data push — is not the thing this is looking for. */
+    const scriptHash = scriptHashOf(o.script)
+    const continuesInput = kind === 'script' ? spentBy.get(scriptHash) : undefined
+    const from = continuesInput === undefined ? null : inputs[continuesInput].satoshis
+    if (continuesInput !== undefined) kind = 'continues'
+    return {
+      index, satoshis: o.value, kind, address: addr, text: text ?? undefined, scriptSize: o.script.length,
+      scriptHash,
+      ...(continuesInput === undefined ? {} : { continuesInput, addedSats: o.value - (from ?? 0) }),
+    }
   })
+
+  const funding: CosignFunding[] = outputs
+    .filter(o => o.continuesInput !== undefined)
+    .map(o => ({
+      outputIndex: o.index, inputIndex: o.continuesInput!, scriptHash: o.scriptHash,
+      from: inputs[o.continuesInput!].satoshis ?? 0, to: o.satoshis, added: o.addedSats ?? 0,
+    }))
 
   const missing = inputs.filter(i => i.satoshis == null)
   if (missing.length > 0) {
@@ -224,10 +310,37 @@ export function analyseCosign(rawTx: string, sources: CosignSource[], address: s
     }
   }
 
+  /* ★★★ THE SECOND HALF OF THE DEFENCE. The fee warning stops a surplus going to a miner; this says
+     where the rest of the money went. A signer funding the battery needs both, and neither is visible
+     on the face of the document. */
+  for (const f of funding) {
+    if (f.added < 0) {
+      warnings.push(`⚠ output #${f.outputIndex + 1} TAKES ${(-f.added).toLocaleString()} sat OUT of the script input #${f.inputIndex + 1} is spending — this is a withdrawal, not a top-up`)
+    }
+  }
+  for (const o of outputs) {
+    if (o.kind === 'script' && o.satoshis > 0) {
+      warnings.push(`output #${o.index + 1} pays ${o.satoshis.toLocaleString()} sat to a script this transaction does not otherwise touch (${o.scriptHash.slice(0, 12)}…) — nothing here says what it is`)
+    }
+  }
+
+  /* ⚠⚠ AN EXPECTATION IS A REFUSAL, NOT A WARNING. Everything above DERIVES what a transaction does; it
+     cannot know what the caller MEANT. A caller that knows which covenant it is funding says so, and a
+     mismatch stops the signing rather than decorating it. */
+  if (expect?.scriptHash != null) {
+    const want = expect.scriptHash.toLowerCase()
+    const hit = funding.find(f => f.scriptHash.toLowerCase() === want)
+    if (hit === undefined) {
+      blockers.push(`this transaction does not add anything to ${want.slice(0, 12)}… — it funds ${funding.length === 0 ? 'nothing it also spends' : funding.map(f => f.scriptHash.slice(0, 12) + '…').join(', ')}`)
+    } else if (expect.maxFunding != null && hit.added > expect.maxFunding) {
+      blockers.push(`this transaction adds ${hit.added.toLocaleString()} sat, more than the ${expect.maxFunding.toLocaleString()} sat expected`)
+    }
+  }
+
   return {
     size, signedSize, inputs, outputs, totalIn, totalOut, fee, feePerKb,
     youSpend, youReceive, youPay: youSpend - youReceive,
-    toSign, warnings, blockers,
+    toSign, warnings, blockers, funding,
   }
 }
 
@@ -241,10 +354,10 @@ export function analyseCosign(rawTx: string, sources: CosignSource[], address: s
  * at all; without it the only way to complete a transaction would be to rebuild it.
  */
 export async function cosignTransaction(
-  rawTx: string, sources: CosignSource[], key: Signer,
+  rawTx: string, sources: CosignSource[], key: Signer, expect?: CosignExpectation,
 ): Promise<{ txId: string; rawTx: string; analysis: CosignAnalysis }> {
   const address = key.address()
-  const analysis = analyseCosign(rawTx, sources, address)
+  const analysis = analyseCosign(rawTx, sources, address, expect)
   if (analysis.blockers.length > 0) throw new Error(analysis.blockers[0])
 
   const tx = Tx.parse(rawTx)
