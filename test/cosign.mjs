@@ -203,9 +203,9 @@ function assembled({ mySats, changeSats, extraOutputs = [] }) {
 
 // ── ★★★ 8 · WHAT IS BEING FUNDED, AND HOW MUCH ─────────────────────────────────────────────────────
 //
-// ★★★ THIS IS WHY THE MODULE EXISTS AT ALL: to fund the Bitcoin Battery, or the racers' fuel depot, or
-//   the next covenant nobody has written yet. ⚠ Without the check below the signer sees "105,000 sat ·
-//   script · 61 bytes" and has no way to tell the battery from anything else with a script in it.
+// ★★★ THIS IS WHY THE MODULE EXISTS AT ALL: to fund a covenant it cannot rebuild, including ones not
+//   written yet. ⚠ Without the check below the signer sees "105,000 sat · script · 61 bytes" and has no
+//   way to tell one script from another.
 //
 // ★★ THE DERIVATION NEEDS NO COVENANT CODE, WHICH IS THE POINT. A covenant top-up SPENDS the covenant
 //   and RE-CREATES it holding more — it has to, since a covenant that could be topped up without being
@@ -273,16 +273,14 @@ function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 140
 
 // ── ⚠⚠ 10 · A FALLING VALUE IS NORMAL — UNTIL IT IS NOT ─────────────────────────────────────────────
 //
-// ⚠⚠⚠ THIS IS WHERE THE OBVIOUS RULE IS WRONG. A covenant of this kind pays its own running costs out
-//   of the value it carries: the battery's rule is a FLOOR, `out0.value ≥ V − MAX_FEE`, not an equality.
-//   So an ordinary TICK comes out slightly smaller, and a top-up is just a tick that came out larger.
-//   ⇒ Warning on any decrease means firing in capitals on normal operation, which trains the signer to
-//     click through the warning that matters. The first version of this did exactly that.
+// ⚠⚠⚠ THIS IS WHERE THE OBVIOUS RULE IS WRONG. A covenant may pay its own running costs out of the
+//   value it carries, so an ordinary spend can come out SMALLER and a top-up is simply one that came out
+//   larger. ⇒ Warning on any decrease fires in capitals on the normal case, which trains the signer to
+//   click through the warning that matters. The first version of this did exactly that.
 //
-// ★★★ THE FEE IS THE LINE. Value that left the covenant and went to the MINER is accounted for. Value
-//   that left BEYOND the fee went to one of the other outputs — it did not evaporate, somebody took it.
-//   That is derivable here alone, needs no knowledge of which covenant this is, and stays correct for a
-//   covenant that does permit a withdrawal.
+// ★★★ THE FEE IS THE LINE, and it is arithmetic on this transaction alone. Value that went to the MINER
+//   is accounted for; value that left BEYOND the fee went to another output. ⚠ Nothing here claims what
+//   any particular covenant permits — that is the covenant's business, not the signer's.
 {
   // an ordinary tick: the covenant shrinks by exactly what the transaction pays the miner
   const tick = topUp({ was: 105000, becomes: 104800, myCoin: 0, changeSats: 0 })
@@ -304,15 +302,11 @@ function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 140
      than to a miner.
      ⚠ Written because a mutation that double-counted the fee SURVIVED the large-drain case above — the
        drain was so far past the threshold that getting the threshold wrong changed nothing.
-     ⚠⚠ AND THIS IS A TEST OF THE CHECK, NOT A DESCRIPTION OF A KNOWN EXPOSURE. A first draft of this
-       comment called small repeated siphoning "the realistic version of the attack", which is wrong for
-       the covenants this wallet actually funds. Taking value out means adding an output to receive it,
-       and that LOWERS the fee while RAISING the size the fee must cover — the two constraints close on
-       each other and the transaction stops relaying. Measured on the battery's numbers: a ceiling of
-       314 against a ~309 sat tick leaves ~5 sat of apparent slack, and one extra output costs ~34 bytes
-       and so ~4 sat more of required fee. The residue is about one satoshi.
-       ⇒ The check still belongs here — cosign is covenant-agnostic and must hold for one whose
-         arithmetic is less tight — but nobody should read this case as a live weakness in the battery. */
+     ⚠⚠ AND THIS IS A TEST OF THE CHECK, NOT A CLAIM ABOUT ANY DEPLOYED SCRIPT. A first draft of this
+       comment described it as a realistic attack and reasoned about a live covenant's fee arithmetic to
+       do so. That was wrong twice over: wrong on the facts, and not this module's business either way.
+       ⇒ What is being tested is that the THRESHOLD is the fee and not zero. Whether a given covenant
+         would permit such a spend is for that covenant to enforce. */
   const siphon = topUp({ was: 105000, becomes: 104700, myCoin: 1000, changeSats: 1100 })
   const c = CS.analyseCosign(siphon.rawTx, siphon.sources, me.address())
   ok(c.fee === 200 && c.funding[0].added === -300,

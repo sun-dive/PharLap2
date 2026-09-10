@@ -80,13 +80,12 @@ export interface CosignOutputView {
 /**
  * ★★★ WHAT IS ACTUALLY BEING FUNDED, DERIVED WITHOUT KNOWING WHAT IT IS.
  *
- * A covenant top-up SPENDS the covenant and RE-CREATES it carrying more satoshis — the battery, the
- * racers' fuel depot, and every covenant after them work this way, because a covenant that could be
- * topped up without being spent would not be a covenant.
+ * A covenant top-up SPENDS the covenant and RE-CREATES it carrying more satoshis. It has to: a covenant
+ * that could be topped up without being spent would not be a covenant.
  *
  * ⇒ So the same locked script appears twice in the transaction: as the script of an input's source, and
- *   as an output. Matching those is enough to say "this transaction adds N satoshis to THAT thing",
- *   with no battery code, no depot code, and nothing that has to be updated for the next covenant.
+ *   as an output. Matching those is enough to say "this transaction adds N satoshis to THAT thing" —
+ *   with no covenant code here, and nothing that has to be updated for the next one.
  *
  * ⚠⚠ WITHOUT THIS THE SIGNER SEES "12,345 sat · script · 201 bytes" AND CANNOT TELL WHAT IT IS. The fee
  *   warning already stops the surplus going to a miner; this is the other half — knowing that the money
@@ -311,17 +310,17 @@ export function analyseCosign(
   }
 
   /* ★★★ THE SECOND HALF OF THE DEFENCE. The fee warning stops a surplus going to a miner; this says
-     where the rest of the money went. A signer funding the battery needs both, and neither is visible
-     on the face of the document. */
-  /* ⚠⚠⚠ A FALLING VALUE IS NORMAL, AND THE FIRST VERSION OF THIS DID NOT KNOW THAT. A covenant of this
-     kind pays its own running costs out of the value it carries — the battery's rule is a FLOOR,
-     `out0.value ≥ V − MAX_FEE`, not an equality — so an ordinary tick comes out slightly SMALLER and a
-     top-up is simply a tick that came out larger. Warning on any decrease fires in capitals on normal
-     operation, which is the cry-wolf failure this module is careful about everywhere else.
-     ★ THE LINE THAT ACTUALLY SEPARATES THEM IS THE FEE. Value that left the covenant and went to the
-       miner is accounted for. Value that left BEYOND the fee went to one of the other outputs — it did
-       not evaporate, somebody took it. ⇒ That is derivable from this transaction alone, needs no
-       knowledge of which covenant it is, and stays true for covenants that do permit a withdrawal. */
+     where the rest of the money went. Neither is visible on the face of the document. */
+  /* ⚠⚠⚠ A FALLING VALUE IS NOT BY ITSELF WRONG, AND THE FIRST VERSION OF THIS ASSUMED IT WAS. A
+     covenant may pay its own running costs out of the value it carries, so coming out smaller can be
+     ordinary operation. Warning on every decrease fires in capitals on the normal case, which is the
+     cry-wolf failure this module is careful about everywhere else.
+     ★ THE LINE IS THE FEE, and it is pure arithmetic on the transaction in front of us. Value that left
+       and went to the MINER is accounted for. Value that left BEYOND the fee went to one of the other
+       outputs — it did not evaporate, somebody received it.
+     ⚠ Deliberately says nothing about whether any particular covenant permits that. This module knows
+       what a transaction DOES; what a covenant ALLOWS is the covenant's business, and asserting it from
+       here would be a claim about somebody else's deployed script. */
   for (const f of funding) {
     const leaked = -f.added - Math.max(fee, 0)
     if (leaked > 0) {
