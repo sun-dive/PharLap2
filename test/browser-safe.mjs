@@ -137,7 +137,17 @@ const walk = d => rd(d, { withFileTypes: true }).flatMap(e =>
 const strays = []
 for (const f of walk(ROOT)) {
   const src = readFileSync(f, 'utf8')
-  for (const m of src.matchAll(/(?:from|import|require\s*\()\s*['"]([^'"]+)['"]/g)) {
+  /* ⚠⚠ THE CHARACTER CLASS EXCLUDES NEWLINES AND SPACES, AND BOTH EXCLUSIONS ARE LOAD-BEARING. This
+     regex cannot tell code from prose. An ordinary English sentence that happens to end on the word
+     that introduces an import, immediately before its closing quote, matches — and the "specifier" it
+     captures then runs on to whatever the next quote happens to be, words and line breaks included.
+     ⇒ A real module specifier contains neither a line break nor a space, so refusing both removes that
+       entire class of false alarm and cannot hide a genuine import.
+     ⚠ Worth fixing rather than rewording the offending sentence, because the sentence was in a TEST and
+       the next one will be in a comment somewhere else. **A gate that cries wolf is a gate people learn
+       to ignore**, and this one exists to catch a dependency creeping back in.
+     ⛔ It is still a heuristic. It is proved against planted imports rather than trusted. */
+  for (const m of src.matchAll(/(?:from|import|require\s*\()\s*['"]([^'"\n ]+)['"]/g)) {
     const spec = m[1]
     // relative paths are this project's own files; `node:` is flagged separately by the bundle checks
     if (spec.startsWith('.') || spec.startsWith('/') || spec.startsWith('node:')) continue
