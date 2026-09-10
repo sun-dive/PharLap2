@@ -123,11 +123,18 @@ became ours. Two defences, because they cover different things:
 Five call sites: the nonce and its inverse in `sign`, public key derivation, BIP-32 child derivation,
 and the ECIES shared secret.
 
-⚠⚠ **The fixed WIDTH is the part that is usually missed, including by the library this replaced.** Its
-ladder loops over `k.toString(2)`, so the iteration count is the scalar's bit length. Measured on it:
-1.28 ms at 256 bits, 0.96 ms at 192, 0.34 ms at 64. A nonce that happens to be short is visible to
-anyone who can time the signature, and short nonces are what lattice attacks on ECDSA consume. Fixing
-the width costs nothing.
+⚠⚠ **The fixed WIDTH is the part easily missed.** Take the loop count from the scalar — `bitLength(k)`,
+or the natural `while (k > 0n)` — and the iteration count *is* the scalar's size. Measured on our own
+ladder, run that way: 1.65 ms at 256 bits, 1.14 at 192, 0.44 at 64. A nonce that happens to be short
+would be visible to anyone who can time the signature, and short nonces are what lattice attacks on
+ECDSA consume.
+
+⚠⚠⚠ **And a fixed width alone does not close it**, which is worth stating because it nearly went in as
+if it did. Leading zero bits are cheap: the accumulator is still the point at infinity and the formulas
+return early. At a fixed width of 321, a 256-bit scalar measured 1.53 ms and a 64-bit one 0.44 ms —
+identical operation counts, different times. ⇒ **Blinding is what makes the width real**: `k + b·n` is
+~320 bits whatever `k` was, so there are no cheap leading zeros. Measured end to end on the shipped
+path, keys from 4 bits to 256: **2.0% spread**.
 
 ★★ **And it made signing 19× faster, which was not the goal.** The old code was affine, so every point
 addition needed a modular inverse — about 330 `modPow` calls per multiply. Jacobian coordinates defer

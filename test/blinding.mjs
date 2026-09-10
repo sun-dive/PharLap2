@@ -35,9 +35,14 @@ const DIGEST = fromHex('7f'.repeat(32))
 // ⚠⚠ TWO SEPARATE LEAKS, AND MOST IMPLEMENTATIONS CLOSE ONLY THE FIRST.
 //   · WHICH BITS ARE SET - a plain double-and-add works only on the 1 bits, so its cost tracks the
 //     scalar's Hamming weight. A Montgomery ladder does one add and one double per bit either way.
-//   · HOW MANY BITS THERE ARE - ⚠ a ladder that loops over the scalar's bit LENGTH still leaks that.
-//     Measured on the library this project replaced: 1.28 ms at 256 bits, 0.96 ms at 192, 0.34 ms at
-//     64. Short nonces are exactly what lattice attacks on ECDSA consume, so this one matters.
+//   · HOW MANY BITS THERE ARE - ⚠ a ladder whose loop count comes from the scalar still leaks that.
+//     Measured on our own ladder run that way: 1.65 ms at 256 bits, 1.14 at 192, 0.44 at 64. Short
+//     nonces are exactly what lattice attacks on ECDSA consume, so this one matters.
+//   ⚠⚠ AND THE FIXED WIDTH ALONE ONLY EQUALISES THE COUNT, WHICH IS WHAT THIS FILE CAN SEE. Leading
+//     zero bits are cheap - the accumulator is still infinity - so at a fixed width a 256-bit scalar
+//     still measured 1.53 ms against 0.44 for a 64-bit one. It is BLINDING that removes those leading
+//     zeros, by making every ladder scalar ~320 bits. ⇒ Counting operations proves the count; the flat
+//     TIMING across key sizes was measured separately, at 2.0% spread from 4 bits to 256.
 {
   const counts = new Set()
   for (const k of [1n, 3n, 255n, 0x1234n, (N + 1n) / 2n, N - 1n]) counts.add(adds(() => mulBlinded(k, G)))

@@ -19,19 +19,27 @@
  * step is still variable-cost.
  *
  * ⚠⚠ AND A FIXED-PATTERN LADDER IS A REAL ALTERNATIVE, NOT AN IMPOSSIBLE ONE. An earlier version of
- * this note said the answer "is not a clever ladder", which was overstated: the library Phar Lap 1 used
- * ran a Montgomery ladder doing one add and one double per bit whatever the bit was, and MEASURED, its
- * cost is flat in Hamming weight — 2.4% spread across 256-bit scalars of weight 2 through 189.
- *   ⇒ The two defences protect DIFFERENT things, and neither covers the other:
- *     | which bits are set | a fixed-pattern ladder hides it outright. Blinding does not hide it, but
- *       the pattern belongs to `k + b·n`, which is fresh every call, not to the key.               |
- *     | the scalar's BIT LENGTH | ⚠ a Montgomery ladder that loops over `k.toString(2)` leaks it: at
- *       256 bits it measured 1.28 ms, at 192 bits 0.96 ms, at 64 bits 0.34 ms. Nonce bit-length is
- *       exactly what lattice attacks on ECDSA consume. Blinding hides it, because the length is then
- *       set by the random blind.                                                                   |
- *     | per-operation cost | neither. BigInt multiply still costs what its operands cost.          |
- *   ⇒ So the complete answer is BOTH: a fixed iteration count over a blinded scalar. That is a
- *     behaviour and performance decision, not a tidy-up, and it has not been taken.
+ * this note said the answer "is not a clever ladder", which was overstated. A Montgomery ladder does one
+ * addition and one doubling per bit whichever way the bit goes, so its cost stops tracking the scalar.
+ *   ⇒ THREE THINGS LEAK, AND THEY ARE NOT THE SAME PROBLEM:
+ *     | which bits are set | ✅ the ladder hides it outright — a plain double-and-add works only on the
+ *       1 bits, so its cost tracks the scalar's Hamming weight.                                     |
+ *     | how many bits there are | ⚠ ONLY IF THE LOOP COUNT IS A CONSTANT. A ladder that runs
+ *       `bitLength(k)` times leaks the size of the scalar, which is what lattice attacks on ECDSA
+ *       consume. MEASURED on the ladder below, run at width = the scalar's own bit length: 1.65 ms at
+ *       256 bits, 1.14 at 192, 0.44 at 64 — a short scalar costs a quarter of a full one.           |
+ *     | per-operation cost | ⛔ NEITHER defence touches this, and nothing in JavaScript can. A BigInt
+ *       multiply costs what its operands cost.                                                      |
+ *
+ * ⚠⚠⚠ AND A FIXED WIDTH ALONE DOES NOT DO IT, WHICH IS EASY TO GET WRONG AND WAS NEARLY WRITTEN HERE.
+ *   Padding the loop to a constant makes the OPERATION COUNT constant, but the leading zero bits are
+ *   cheap: `R0` is still the point at infinity and both formulas return early. Measured at a fixed
+ *   width of 321, a 256-bit scalar cost 1.53 ms and a 64-bit one 0.44 ms — the count was identical and
+ *   the TIME was not.
+ *   ⇒ ★ BLINDING IS WHAT ACTUALLY CLOSES IT: `k + b·n` with an 8-byte `b` is ~320 bits whatever `k`
+ *     was, so there are no leading zeros to be cheap. The fixed width then makes that structural
+ *     rather than a happy consequence of `b` being large.
+ *   ⇒ Measured end to end on the shipped path, keys from 4 bits to 256: **2.0% spread**.
  *
  *   | `mul`        | ⚠ PUBLIC scalars only. Reduces mod N, then a plain double-and-add whose work
  *     depends on the bits of the scalar. Verification's `u1`/`u2` are public and belong here.        |
@@ -145,10 +153,12 @@ export const mul = (k, p = G) => mulRaw(mod(k, N), p)
  *   about 380 big multiplications — and a multiply performs several hundred additions. Jacobian form
  *   defers the inversion: ONE at the end of the whole multiply, not one per step.
  *
- * ⇒ That is what makes a constant-pattern ladder affordable. Measured on the library Phar Lap 1 used,
- *   its constant-time multiply costs about 2.5x its variable one, which sounds like the price of the
- *   property. For us it is the reverse: the ladder below does MORE point operations than the old
- *   double-and-add and is still several times faster, because it stopped inverting.
+ * ⇒ That is what makes a constant-pattern ladder affordable, and it is worth knowing WHY, because the
+ *   received wisdom is that constant time costs a multiple of variable time. It does, when the variable
+ *   version is already efficient. Ours was not: it inverted on every step. ⇒ The ladder below does MORE
+ *   point operations than the old double-and-add and still runs 19x faster — 40.5 ms to 2.10 ms per
+ *   signature — because the property it bought displaced the expensive part.
+ *   ★ So before accepting "hardening costs N times", check what it REPLACES.
  *
  * ⚠ Formulas are the standard `dbl-2009-l` and `add-2007-bl` for a = 0, which secp256k1 is.
  */
@@ -208,11 +218,17 @@ export const lastLadderScalar = () => LAST_SCALAR
  *   whichever way the bit goes — the bit selects which register RECEIVES the result, never whether work
  *   happens. And the loop runs `width` times regardless of how large `k` actually is.
  *
- * ⚠⚠ THAT SECOND PART IS THE ONE MOST IMPLEMENTATIONS MISS, INCLUDING THE ONE THIS PROJECT REPLACED.
- *   Its ladder loops over `k.toString(2)`, so the ITERATION COUNT is the scalar's bit length. Measured:
- *   1.28 ms at 256 bits, 0.96 ms at 192, 0.34 ms at 64. A nonce that happens to be short is visible to
- *   anyone who can time the signature, and short nonces are exactly what lattice attacks on ECDSA feed
- *   on. Fixing the width costs nothing and closes it.
+ * ⚠⚠ THAT SECOND PART IS THE ONE EASILY MISSED. Deriving the loop count from the scalar — `bitLength(k)`,
+ *   or the natural `while (k > 0n)` — makes the ITERATION COUNT the scalar's size. Measured on this very
+ *   function, run at width = the scalar's own bit length: 1.65 ms at 256 bits, 1.14 at 192, 0.44 at 64.
+ *   A nonce that happens to be short would be visible to anyone who can time the signature, and short
+ *   nonces are exactly what lattice attacks on ECDSA feed on. A constant width costs nothing.
+ *
+ * ⚠ BUT IT IS NOT SUFFICIENT ON ITS OWN. Leading zero bits are cheap here — `R[0]` is still infinity and
+ *   both formulas return early — so a fixed width alone equalises the COUNT and not the TIME: at width
+ *   321 a 256-bit scalar measured 1.53 ms against 0.44 for a 64-bit one. ⇒ It is `mulBlinded` handing
+ *   this a scalar that is always ~320 bits that makes the width real. **Do not call this directly with
+ *   a secret.**
  */
 function mulLadder(k, p, width) {
   const R = [J_INF, { X: p.x, Y: p.y, Z: 1n }]
