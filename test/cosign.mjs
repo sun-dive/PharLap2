@@ -299,12 +299,20 @@ function topUp({ was = 5000, becomes = 105000, myCoin = 120000, changeSats = 140
   ok(b.warnings.some(w => /LESS than input/.test(w)),
      '⚠⚠★★★ …and value leaving BEYOND the fee is called out — somebody took it')
 
-  /* ★★★ THE BOUNDARY IS WHERE THIS HAS TO BE EXACT, and a large drain does not test it. Siphoning a
-     little on every tick is the realistic version of this attack: it looks like an expensive tick, it
-     is small enough to be mistaken for rounding, and it repeats. ⇒ Here the covenant falls by 300 while
-     the transaction pays 200, so exactly 100 sat went to an output rather than to a miner.
+  /* ★★★ THE BOUNDARY IS WHERE THIS HAS TO BE EXACT, and a large drain does not test it. Here the
+     covenant falls by 300 while the transaction pays 200, so exactly 100 sat went to an output rather
+     than to a miner.
      ⚠ Written because a mutation that double-counted the fee SURVIVED the large-drain case above — the
-       drain was so far past the threshold that getting the threshold wrong changed nothing. */
+       drain was so far past the threshold that getting the threshold wrong changed nothing.
+     ⚠⚠ AND THIS IS A TEST OF THE CHECK, NOT A DESCRIPTION OF A KNOWN EXPOSURE. A first draft of this
+       comment called small repeated siphoning "the realistic version of the attack", which is wrong for
+       the covenants this wallet actually funds. Taking value out means adding an output to receive it,
+       and that LOWERS the fee while RAISING the size the fee must cover — the two constraints close on
+       each other and the transaction stops relaying. Measured on the battery's numbers: a ceiling of
+       314 against a ~309 sat tick leaves ~5 sat of apparent slack, and one extra output costs ~34 bytes
+       and so ~4 sat more of required fee. The residue is about one satoshi.
+       ⇒ The check still belongs here — cosign is covenant-agnostic and must hold for one whose
+         arithmetic is less tight — but nobody should read this case as a live weakness in the battery. */
   const siphon = topUp({ was: 105000, becomes: 104700, myCoin: 1000, changeSats: 1100 })
   const c = CS.analyseCosign(siphon.rawTx, siphon.sources, me.address())
   ok(c.fee === 200 && c.funding[0].added === -300,
