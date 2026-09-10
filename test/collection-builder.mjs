@@ -141,6 +141,50 @@ ok(CB.PHARLAP_OUTPUT_SATS === 1, '★ a record output is 1 satoshi, never 0 - a 
   ok(Tx.parse(r.tx.hex()).hex() === v.hex, '…and the result still round-trips through the parser')
 }
 
+// ── ⚠⚠ SIGNING FUNDING THAT DOES NOT START AT INPUT 0 ──────────────────────────────────────────────
+//
+// ⚠⚠⚠ A COVENANT SPEND PUTS THE COVENANT FIRST, so the payer's funding begins at input 1. `signFunding`
+//   used to assume index 0 and would then have signed the COVENANT input with a P2PKH unlock and left
+//   the real funding input empty.
+// ⛔ THE FAILURE IS SILENT LOCALLY. Such a transaction serializes, hashes and broadcasts perfectly well;
+//   the network rejects it for a bad script, and nothing on this side says the indexes were off by one.
+//   ⇒ Which is exactly why it needs a test rather than a careful reading.
+{
+  const key = Signer.fromSeed(new Uint8Array(64).fill(77))
+  const other = Signer.fromSeed(new Uint8Array(64).fill(78))
+  const funding = [{ utxo: { txId: 'ab'.repeat(31) + '01', outputIndex: 0, satoshis: 50000, script: '' } }]
+
+  // input 0 stands in for a covenant being spent; input 1 is the funding
+  const tx = new Tx(2,
+    [{ txid: txidToWire('cd'.repeat(31) + '09'), vout: 0, script: Uint8Array.of(0x51), sequence: 0xffffffff },
+     { txid: txidToWire(funding[0].utxo.txId), vout: 0, script: new Uint8Array(0), sequence: 0xffffffff }],
+    [{ value: 1000, script: key.lockingScript() }], 0)
+
+  CB.signFunding(tx, key, funding, 1)
+  ok(toHex(tx.inputs[0].script) === '51',
+     '★★★ the input BEFORE the funding is left exactly as it was — not overwritten with a P2PKH unlock')
+  ok(tx.inputs[1].script.length > 100, `★★★ …and the funding input at index 1 is the one that got signed (${tx.inputs[1].script.length} bytes)`)
+  ok(Signer.verifyInput(tx, 1, key.lockingScript(), 50000, key.publicKey(),
+       (await import('../impl/js/script.mjs')).Script.fromBinary(tx.inputs[1].script).chunks[0].data),
+     '★★ …and that signature verifies against input 1, for input 1’s amount')
+
+  /* ⛔ AN OFFSET PAST THE LAST INPUT MUST SAY SO — and the assertion is on the MESSAGE, not merely that
+     something was thrown. ⚠ Without the guard, `tx.inputs[5].script = …` throws a TypeError all by
+     itself, so a test that only checks "it threw" passes with the guard deleted. It was written as a
+     mutant and it survived exactly that. The guard's whole value is naming the index that was wrong. */
+  let threw = ''
+  try { CB.signFunding(tx, key, funding, 5) } catch (e) { threw = String(e.message) }
+  ok(/signFunding: no input at 5/.test(threw),
+     `⛔★ an offset past the last input names the index it could not find (${threw.slice(0, 52)})`)
+
+  // ★ and the default is unchanged, so every existing caller behaves exactly as before
+  const tx2 = new Tx(2,
+    [{ txid: txidToWire(funding[0].utxo.txId), vout: 0, script: new Uint8Array(0), sequence: 0xffffffff }],
+    [{ value: 1000, script: key.lockingScript() }], 0)
+  CB.signFunding(tx2, key, funding)
+  ok(tx2.inputs[0].script.length > 100, '★ with no offset given, funding still signs from input 0')
+}
+
 rmSync(tmp, { recursive: true, force: true })
 console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [collection builder · byte-identical transactions]`)
 process.exit(fail === 0 ? 0 : 1)

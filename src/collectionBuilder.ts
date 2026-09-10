@@ -66,9 +66,21 @@ export function addFunding(tx: Tx, funding: FundingInput[]): void {
 }
 
 /** Sign those inputs. ⚠ They are inputs 0..n-1; anything else in the transaction signs itself. */
-export function signFunding(tx: Tx, signer: Signer, funding: FundingInput[]): void {
+/**
+ * ⚠⚠ `firstInput` EXISTS BECAUSE FUNDING IS NOT ALWAYS AT INDEX 0. A covenant spend puts the covenant
+ *   input first and the payer's funding after it. Signing `tx.inputs[i]` for funding entry `i` would
+ *   then sign the COVENANT input with a P2PKH unlock and leave the real funding input empty.
+ * ⛔ The failure is not loud: the transaction serializes, broadcasts, and is rejected by the network for
+ *   a bad script — with nothing locally to say the indexes were off by one. Hence the parameter, and
+ *   hence it is required to be correct rather than inferred.
+ */
+export function signFunding(tx: Tx, signer: Signer, funding: FundingInput[], firstInput = 0): void {
   const script = signer.lockingScript()
-  funding.forEach((f, i) => { tx.inputs[i].script = signer.unlockP2PKH(tx, i, script, f.utxo.satoshis) })
+  funding.forEach((f, i) => {
+    const at = firstInput + i
+    if (tx.inputs[at] === undefined) throw new Error(`signFunding: no input at ${at} (funding entry ${i})`)
+    tx.inputs[at].script = signer.unlockP2PKH(tx, at, script, f.utxo.satoshis)
+  })
 }
 import type { Utxo, WalletProvider } from './walletProvider.ts'
 import {
