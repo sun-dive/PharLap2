@@ -48,7 +48,7 @@ library imported in code.
 | its hashing companion | a file known to derive from it | ✅ 6 |
 | a second pure-JS curve library | its published package, fetched from npm | ✅ 4 |
 | a desktop wallet's coin selector | its published source | ✅ 5 |
-| the SDK previously depended on | a file that genuinely imports it | ✅ 1 |
+| the removed library depended on | a file that genuinely imports it | ✅ 1 |
 | a Python Bitcoin library | ⚪ none installed locally | **unproven — declared, not claimed** |
 | an older JS Bitcoin library | ⚪ none installed locally | **unproven — declared, not claimed** |
 

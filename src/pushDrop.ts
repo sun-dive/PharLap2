@@ -11,13 +11,12 @@
  * the UTXO set and is NOT prunable (unlike OP_RETURN). This is the core reason
  * PHAR LAP moves token metadata here. See PLAN.md / BRC-48.
  *
- * This is a *raw-key* implementation of the PushDrop pattern, which is
- * built around the BRC-100 `WalletInterface` (protocolID/keyID/counterparty). PHAR LAP
- * signs with a raw private scalar, matching the rest of the wallet.
+ * A *raw-key* implementation of the push-and-drop pattern: a public key and a checksig, followed by
+ * data fields that the script then drops. PHAR LAP signs with a raw private scalar, matching the rest
+ * of the wallet, rather than routing keys through a wallet-permission interface.
  *
- * Layout note: we use the SDK's "lock-before" ordering (pubkey + OP_CHECKSIG first,
- * then the dropped fields). This matches the layout already on chain, so the
- * encoding semantics are battle-tested. The minimal-push encoding and OP_DROP/OP_2DROP
+ * ⚠ Layout note: the key and OP_CHECKSIG come FIRST, then the dropped fields. That ordering is not a
+ * preference - it is what the tokens already on chain use, so it is fixed. The minimal-push encoding and OP_DROP/OP_2DROP
  * bundling below are ported from that template.
  *
  * The fields themselves are opaque here — the token field layout (prefix, version,
@@ -45,9 +44,8 @@ interface ScriptChunk {
 }
 
 /**
- * Minimally-encoded push for a data field — required because BSV consensus (and the
- * SDK `Spend` interpreter) enforce MINIMALPUSH: a 1-byte value 1..16 must use OP_1..OP_16,
- * an empty push must use OP_0, etc.
+ * Minimally-encoded push for a data field — required because consensus enforces MINIMALPUSH: a 1-byte
+ * value 1..16 must use OP_1..OP_16, an empty push must use OP_0, and so on.
  *
  * ⚠⚠⚠ THIS ENCODING IS FIXED BY WHAT IS ON CHAIN, and it is NOT the same rule as the wallet core's
  *   `minimalPush`. Here a single ZERO byte encodes to OP_0; there it encodes to a one-byte push. Both

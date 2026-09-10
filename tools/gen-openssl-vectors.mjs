@@ -1,11 +1,11 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
  * Generate ECDSA vectors using **openssl** as the oracle — replacing the ones taken from the wallet
- * SDK this project removed.
+ * library this project removed.
  *
  * ★★★ WHY THIS EXISTS. Agreeing with an implementation you do not trust proves COMPATIBILITY, not
- *   CORRECTNESS. The SDK-derived set told us we produce what it produces; it could not tell us either
- *   of us was right. ⇒ openssl is an independent implementation with no relationship to this project,
+ *   CORRECTNESS. The old set told us we produce what it produced; it could not tell us either of us
+ *   was right. ⇒ openssl is an independent implementation with no relationship to this project,
  *   and it is what the sibling PHP wallet is already graded against.
  *
  * ⚠⚠ OPENSSL SIGNS WITH A RANDOM `k`, NOT RFC 6979. So its signatures are **not comparable byte for
@@ -16,7 +16,7 @@
  *   | 2 · openssl signs → **we verify**   | our verifier accepts genuine foreign signatures, including the random-`k` shapes ours never produces |
  *   | 3 · our `k` values                  | graded separately by **RFC 6979 §A.2.5's own published vectors** — see `test/rfc6979.mjs` |
  *
- *   ⇒ Between them: valid, interoperable, and deterministic — with nothing from the SDK.
+ *   ⇒ Between them: valid, interoperable, and deterministic — owing nothing to what was removed.
  *
  *   node tools/gen-openssl-vectors.mjs [count]
  */
@@ -81,8 +81,8 @@ for (let i = 0; i < COUNT; i++) {
 }
 
 const out = {
-  _: 'ECDSA vectors generated with OPENSSL as the oracle. ★ Replaces a set derived from a wallet SDK '
-   + 'this project removed: agreeing with an implementation you do not trust proves compatibility, not '
+  _: 'ECDSA vectors generated with OPENSSL as the oracle. ★ Replaces a set derived from the wallet '
+   + 'library this project removed: agreeing with an implementation you do not trust proves compatibility, not '
    + 'correctness. openssl is independent of this project and of that library.',
   _method: '1. every `ours` signature was VERIFIED BY OPENSSL at generation. 2. every `openssl` '
    + 'signature is verified by us when the suite runs. 3. our k values are graded separately by '

@@ -12,9 +12,9 @@
  *
  *   ⇒ Valid · interoperable · deterministic. Regenerate with `node tools/gen-openssl-vectors.mjs`.
  *
- * ⚠ A separate, OPTIONAL section checks compatibility with the wallet SDK this project removed. That
- *   is a different claim and is labelled as one: **agreeing with an implementation proves you match
- *   it, not that either of you is right.** It matters only because keys must restore to the same
+ * ⚠ A separate, OPTIONAL section checks that we still reproduce signatures the DEPLOYED wallet made.
+ *   That is a different claim and is labelled as one: **agreeing with an implementation proves you
+ *   match it, not that either of you is right.** It matters only because keys must restore to the same
  *   addresses. It never grades correctness, and the suite is complete without it.
  */
 import { sign, verifyDigest, publicKey, decodeDer } from '../impl/js/ecdsa.mjs'
@@ -70,10 +70,10 @@ if (padded) {
      "⛔ r stripped of its required 0x00 is REFUSED — malleability, barred on the network since BIP-66")
 } else ok(false, 'no 0x00-padded r in the vector set to test malleability with')
 
-// ── ⚪ OPTIONAL · compatibility with the removed SDK. NOT a correctness claim. ───────────────────────
-const S = load('sdk-signature-vectors.json')
+// ── ⚪ OPTIONAL · compatibility with the DEPLOYED wallet. NOT a correctness claim. ───────────────────
+const S = load('deployed-signature-vectors.json')
 if (S === null) {
-  console.log('  ⚪ (SDK compatibility section skipped — vectors not present, and the suite does not need them)')
+  console.log('  ⚪ (compatibility section skipped — vectors not present, and the suite does not need them)')
 } else {
   let diff = 0
   for (const r of S.random.slice(0, 100)) {
