@@ -20,13 +20,22 @@
  */
 import { Tx } from '../impl/js/transaction.mjs'
 import { preimage, SIGHASH } from '../impl/js/transaction.mjs'
-import { LockingScript, UnlockingScript, Script } from '../impl/js/script.mjs'
+import { LockingScript, UnlockingScript as CoreUnlockingScript } from '../impl/js/script.mjs'
+
+/* ★ A BOUNDARY, NOT A DUPLICATE. `covenant.ts` hand-assembles chunks whose `data` is `number[]`; the
+   core script class carries `Uint8Array`. Converting here keeps that conversion in ONE place instead of
+   scattering `Uint8Array.from` through every unlock. `covenant.ts` has the same shim for locking
+   scripts, deliberately — see the note there. */
+const UnlockingScript = {
+  from: (chunks: Array<{ op: number; data?: number[] }>) =>
+    new CoreUnlockingScript(chunks.map(c => ({ op: c.op, data: c.data === undefined ? undefined : Uint8Array.from(c.data) }))),
+}
 import { applyFee } from '../impl/js/coins.mjs'
 import { toHex, fromHex } from '../impl/js/bytes.mjs'
 import { hexBytes, hexOf, sha256Bytes, hash160Bytes, addressFromPubHex } from './bytes.ts'
+import { beBytes } from '../impl/js/bytes.mjs'
 import { scriptForAddress } from '../impl/js/address.mjs'
-import { txidToWire } from '../impl/js/signer.mjs'
-import type { Signer } from '../impl/js/signer.mjs'
+import { Signer, txidToWire } from '../impl/js/signer.mjs'
 import {
   buildEditionLock, swapEditionOwner, editionOwnerPubKey, p2pkhScript, serializeOutput,
   editionReplicateUnlockChunks, editionTransferUnlockChunks, editionBurnUnlockChunks, EDITION_SCOPE, parseEditionScript,
@@ -52,7 +61,7 @@ export interface EditionTerms {
 }
 
 function pubKeyBytes(key: Signer): number[] {
-  return key.toPublicKey().encode(true) as number[]
+  return Array.from(key.publicKey())
 }
 
 // ─── GENESIS ────────────────────────────────────────────────────────
@@ -143,16 +152,34 @@ const enforcedSliceBytes = (tx: Tx, enforced: number): number[] =>
   tx.outputs.slice(enforced).flatMap(o => serializeOutput(o.value, Array.from(o.script)))
 
 /**
- * ⚠⚠⚠ THE INVARIANT THE FEE RESTS ON. Measure an unlock before the fee is applied and again after, and
- *   the two lengths MUST be equal. If they are not, `applyFee` was given the wrong size, the fee is
- *   wrong, and the transaction is rejected or silently over-pays.
- * ★ Cheap enough to run every time rather than only in tests: it rebuilds one script.
+ * ⚠⚠⚠ THE INVARIANT THE FEE RESTS ON, AND IT IS NOT THE SAME FOR EVERY UNLOCK.
+ *
+ *   | REPLICATE | ⚠ carries NO signature, so its length is EXACT and must not move by a single byte.  |
+ *   | TRANSFER · BURN | ⚠⚠ carry an owner signature, and a DER signature is 70, 71 or 72 bytes
+ *     depending on whether `r` or `s` needs a leading zero. ⇒ Its length is NOT knowable before it
+ *     exists, so it is sized against a maximum and the real one comes out equal or SHORTER.           |
+ *
+ * ⇒ Hence two checks rather than one. **Over-estimating is safe and under-estimating is not**: a fee
+ *   computed from too small a size produces a transaction that is well-formed, under-paid, and simply
+ *   never confirms — with nothing in it to say why.
+ *
+ * ★ This was not reasoned out in advance. The strict version was written first, applied to all three,
+ *   and the transfer builder failed on its FIRST run at 1122 → 1121 bytes. The guard found it, which is
+ *   the argument for having it in the code rather than only in a test.
  */
-function assertStableLength(before: number, after: number, what: string): void {
-  if (before !== after) {
-    throw new Error(`${what}: unlock length moved between fee and signing (${before} → ${after}) — the fee would be wrong`)
+function assertExactLength(sized: number, actual: number, what: string): void {
+  if (sized !== actual) {
+    throw new Error(`${what}: unlock length moved between fee and signing (${sized} → ${actual}) — the fee would be wrong`)
   }
 }
+function assertNotLonger(sized: number, actual: number, what: string): void {
+  if (actual > sized) {
+    throw new Error(`${what}: unlock came out LONGER than the fee allowed for (${sized} → ${actual}) — the fee is short`)
+  }
+}
+
+/** ⚠ A DER signature plus its sighash byte, at its longest. Sizing against this can only over-pay. */
+const MAX_SIG_LEN = 73
 
 /**
  * REPLICATE — permissionless. No signature at all: the covenant is satisfied by proving the outputs, so
@@ -163,10 +190,10 @@ export function replicateUnlock(tx: Tx, inputIndex: number, opts: {
   lockBytes: number[]
   sourceSatoshis: number
   enforcedOutputCount?: number
-}): number[] {
+}): Uint8Array {
   const pre = covenantPreimage(tx, inputIndex, opts.lockBytes, opts.sourceSatoshis, EDITION_SCOPE)
   const buyerChange = enforcedSliceBytes(tx, opts.enforcedOutputCount ?? 4)
-  return new UnlockingScript(editionReplicateUnlockChunks({ buyerPubKey: opts.buyerPubKey, buyerChange, preimage: pre })).toBinary()
+  return UnlockingScript.from(editionReplicateUnlockChunks({ buyerPubKey: opts.buyerPubKey, buyerChange, preimage: pre })).toBinary()
 }
 
 /**
@@ -179,11 +206,17 @@ export function transferUnlock(tx: Tx, inputIndex: number, opts: {
   lockBytes: number[]
   sourceSatoshis: number
   enforcedOutputCount?: number
-}): number[] {
+  forSizing?: boolean
+}): Uint8Array {
   const introspection = covenantPreimage(tx, inputIndex, opts.lockBytes, opts.sourceSatoshis, EDITION_SCOPE)
-  const ownerSig = Array.from(opts.ownerKey.signInput(tx, inputIndex, Uint8Array.from(opts.lockBytes), opts.sourceSatoshis, SIGHASH.ALL_FORKID))
+  /* ⚠ `forSizing` substitutes a maximum-length signature so the fee can be computed before the real one
+     exists. It must never reach a broadcast transaction — the builders call it once to measure, then
+     again for real. */
+  const ownerSig = opts.forSizing === true
+    ? new Array(MAX_SIG_LEN).fill(0)
+    : Array.from(opts.ownerKey.signInput(tx, inputIndex, Uint8Array.from(opts.lockBytes), opts.sourceSatoshis, SIGHASH.ALL_FORKID))
   const change = enforcedSliceBytes(tx, opts.enforcedOutputCount ?? 1)
-  return new UnlockingScript(editionTransferUnlockChunks({
+  return UnlockingScript.from(editionTransferUnlockChunks({
     newOwnerPubKey: opts.newOwnerPubKey, ownerSig, change, preimage: introspection,
   })).toBinary()
 }
@@ -193,10 +226,13 @@ export function burnUnlock(tx: Tx, inputIndex: number, opts: {
   ownerKey: Signer
   lockBytes: number[]
   sourceSatoshis: number
-}): number[] {
+  forSizing?: boolean
+}): Uint8Array {
   const introspection = covenantPreimage(tx, inputIndex, opts.lockBytes, opts.sourceSatoshis, EDITION_SCOPE)
-  const ownerSig = Array.from(opts.ownerKey.signInput(tx, inputIndex, Uint8Array.from(opts.lockBytes), opts.sourceSatoshis, SIGHASH.ALL_FORKID))
-  return new UnlockingScript(editionBurnUnlockChunks({ ownerSig, preimage: introspection })).toBinary()
+  const ownerSig = opts.forSizing === true
+    ? new Array(MAX_SIG_LEN).fill(0)
+    : Array.from(opts.ownerKey.signInput(tx, inputIndex, Uint8Array.from(opts.lockBytes), opts.sourceSatoshis, SIGHASH.ALL_FORKID))
+  return UnlockingScript.from(editionBurnUnlockChunks({ ownerSig, preimage: introspection })).toBinary()
 }
 
 /* ⚠ SIZING AN OWNER-SIGNED UNLOCK BEFORE THE SIGNATURE EXISTS. A DER signature is 71 or 72 bytes plus the
@@ -214,7 +250,10 @@ export interface EditionUtxo {
   satoshis: number
   /** The edition locking script bytes (the covenant being spent). */
   lockBytes: number[]
-  sourceTx: Tx
+  /* ⛔ `sourceTx` STOOD HERE. Nothing reads it any more — the builders take the outpoint, the value and
+     the script, which is everything a BIP-143 signature commits to. ⚠ The callers below still FETCH the
+     parent, because that is where the edition's bonded value is read from; they simply no longer carry
+     it around afterwards. */
 }
 
 export interface ReplicateResult {
@@ -249,7 +288,7 @@ export async function buildReplicateTx(opts: {
   const lockBytes = opts.edition.lockBytes
   const holderPub = editionOwnerPubKey(lockBytes)
   const buyerPub = opts.ownerPubKey ?? pubKeyBytes(opts.buyerKey)
-  const tx1RefHex = parseEditionScript(LockingScript.fromBinary(lockBytes))?.tx1RefHex
+  const tx1RefHex = parseEditionScript(LockingScript.fromBinary(Uint8Array.from(lockBytes)))?.tx1RefHex
   const tx = new Tx(2, [], [], 0)
 
   // input 0: the holder's edition UTXO, spent via the permissionless replicate branch
@@ -285,8 +324,8 @@ export async function buildReplicateTx(opts: {
     satPerKb: opts.feePerKb ?? DEFAULT_FEE_PER_KB,
   })
   const finalUnlock = replicateUnlock(tx, 0, unlockOpts)
-  assertStableLength(sizedUnlock, finalUnlock.length, 'replicate')
-  tx.inputs[0].script = Uint8Array.from(finalUnlock)
+  assertExactLength(sizedUnlock, finalUnlock.length, 'replicate')
+  tx.inputs[0].script = finalUnlock
   signFunding(tx, opts.buyerKey, opts.funding, 1)
 
   const changeSats = tx.outputs[changeVout]?.value ?? 0
@@ -318,7 +357,7 @@ export async function buildEditionTransferTx(opts: {
   // out0 re-creates the token with the bond preserved (covenant-enforced VALUE1 = the UTXO value).
   const bond = opts.edition.satoshis
   const lockBytes = opts.edition.lockBytes
-  const tx1RefHex = parseEditionScript(LockingScript.fromBinary(lockBytes))?.tx1RefHex
+  const tx1RefHex = parseEditionScript(LockingScript.fromBinary(Uint8Array.from(lockBytes)))?.tx1RefHex
   const tx = new Tx(2, [], [], 0)
 
   tx.inputs.push({ txid: txidToWire(opts.edition.txId), vout: opts.edition.outputIndex, script: new Uint8Array(0), sequence: 0xffffffff })
@@ -339,7 +378,7 @@ export async function buildEditionTransferTx(opts: {
   tx.outputs.push({ value: 0, script: opts.ownerKey.lockingScript() })
 
   const unlockOpts = { ownerKey: opts.ownerKey, newOwnerPubKey: opts.newOwnerPubKey, lockBytes, sourceSatoshis: bond }
-  const sizedUnlock = transferUnlock(tx, 0, unlockOpts).length
+  const sizedUnlock = transferUnlock(tx, 0, { ...unlockOpts, forSizing: true }).length
   applyFee(tx, {
     inputValues: [bond, ...opts.funding.map(f => f.utxo.satoshis)],
     unlockingSizes: [sizedUnlock, ...opts.funding.map(() => UNLOCK_P2PKH)],
@@ -347,8 +386,8 @@ export async function buildEditionTransferTx(opts: {
     satPerKb: opts.feePerKb ?? DEFAULT_FEE_PER_KB,
   })
   const finalUnlock = transferUnlock(tx, 0, unlockOpts)
-  assertStableLength(sizedUnlock, finalUnlock.length, 'transfer')
-  tx.inputs[0].script = Uint8Array.from(finalUnlock)
+  assertNotLonger(sizedUnlock, finalUnlock.length, 'transfer')
+  tx.inputs[0].script = finalUnlock
   signFunding(tx, opts.ownerKey, opts.funding, 1)
 
   const changeSats = tx.outputs[changeVout]?.value ?? 0
@@ -357,8 +396,13 @@ export async function buildEditionTransferTx(opts: {
 
 // ─── Network wrappers (funding selection + broadcast) ───────────────
 
-export async function toFundingInputs(provider: WalletProvider, utxos: Utxo[]): Promise<FundingInput[]> {
-  return Promise.all(utxos.map(async u => ({ utxo: u, sourceTx: await provider.getSourceTransaction(u.txId) })))
+export async function toFundingInputs(_provider: WalletProvider, utxos: Utxo[]): Promise<FundingInput[]> {
+  /* ⚠ THE PARENT TRANSACTIONS ARE NO LONGER FETCHED. The deployed version pulled one per input, because
+     the old unlocking template read the amount out of the parent. A BIP-143 signature commits to the
+     amount directly, so it is passed explicitly and the parent is never consulted — one network round
+     trip per funding input, gone. ⚠ `provider` is kept in the signature: callers pass it, and the shape
+     of this helper is not worth churning for one unused argument. */
+  return utxos.map(u => ({ utxo: u }))
 }
 
 export interface CreateEditionResult {
@@ -409,7 +453,7 @@ export async function createEdition(provider: WalletProvider, key: Signer, param
 
   // Covenant template committed in TX1: structurally identical to an edition but with identity zeroed.
   const templateLock = buildEditionLock({
-    tx1Ref: new Array(32).fill(0), ownerPubKey: new Array(33).fill(0), stateData,
+    tx1Ref: new Array(32).fill(0), ownerPubKey: new Array(33).fill(0),
     publisherPubKeyHash: params.terms.publisherPubKeyHash, publisherFeeSats: params.terms.publisherFeeSats,
     holderFeeSats: params.terms.holderFeeSats, tokenSats,
   })
@@ -428,8 +472,12 @@ export async function createEdition(provider: WalletProvider, key: Signer, param
     if (encrypt) {
       const K = newContentKey()
       keySalt = newKeySalt()
-      storedBytes = encryptContent(storedBytes, K)
-      wrappedKey = wrapContentKey(K, keySalt)
+      /* ⚠⚠ AWAITED, AND THE DEPLOYED CALLS WERE NOT. These now go through the browser's own AES-GCM,
+         which is async. Without the await, `storedBytes` becomes a PROMISE — and a Promise serializes
+         into the file output as garbage rather than failing, so the mint would succeed and the content
+         would be unreadable forever. Caught by type-checking, not by running it. */
+      storedBytes = await encryptContent(storedBytes, K)
+      wrappedKey = await wrapContentKey(K, keySalt)
     }
   }
   const restrictions = RESTRICTION_REPLICABLE | (encrypt ? RESTRICTION_ENCRYPTED : 0) | (compressed ? RESTRICTION_COMPRESSED : 0)
@@ -482,10 +530,9 @@ export async function createEdition(provider: WalletProvider, key: Signer, param
   if (t1.changeVout == null) throw new Error('Insufficient funding: template tx left no change to fund the edition mint.')
   const t2Funding: FundingInput[] = [{
     utxo: { txId: t1.tx1Id, outputIndex: t1.changeVout, satoshis: t1.changeSats, script: '' },
-    sourceTx: t1.tx,
   }]
   const t2 = await buildEditionGenesisTx({
-    key, funding: t2Funding, tx1Ref: t1.tx1Id, terms: params.terms, ownerPubKey: ownerPub, stateData, mintCount, feePerKb,
+    key, funding: t2Funding, tx1Ref: t1.tx1Id, terms: params.terms, ownerPubKey: ownerPub, mintCount, feePerKb,
   })
 
   if (params.confirmSpend != null && !(await params.confirmSpend(spentSats(selected, t2.changeSats)))) {
@@ -503,7 +550,7 @@ export async function createEdition(provider: WalletProvider, key: Signer, param
     t2.changeVout != null ? { outputIndex: t2.changeVout, satoshis: t2.changeSats } : undefined)
 
   const editions = t2.editionVouts.map(v => ({
-    txId: t2.txId, outputIndex: v, lockHex: hexOf(t2.tx.outputs[v].lockingScript.toBinary()),
+    txId: t2.txId, outputIndex: v, lockHex: hexOf(Array.from(t2.tx.outputs[v].script)),
   }))
   return { collectionId: t1.tx1Id, tx1Id: t1.tx1Id, tx2Id: t2.txId, editions }
 }
@@ -523,9 +570,9 @@ export async function replicateEdition(provider: WalletProvider, buyerKey: Signe
   const feePerKb = params.feePerKb ?? DEFAULT_FEE_PER_KB
   const lockBytes = hexBytes(params.editionLockHex)
   const sourceTx = await provider.getSourceTransaction(params.editionTxId)
-  const bond = sourceTx.outputs[params.editionOutputIndex]?.satoshis ?? PHARLAP_OUTPUT_SATS // the edition's enforced bond
+  const bond = sourceTx.outputs[params.editionOutputIndex]?.value ?? PHARLAP_OUTPUT_SATS // the edition's enforced bond
   const edition: EditionUtxo = {
-    txId: params.editionTxId, outputIndex: params.editionOutputIndex, satoshis: bond, lockBytes, sourceTx,
+    txId: params.editionTxId, outputIndex: params.editionOutputIndex, satoshis: bond, lockBytes,
   }
   // Buyer funds: the replica's bond (out1), both fees, the optional note carrier, miner fee, margin. The
   // holder's returned token (out0) rides forward from the spent edition input.
@@ -536,7 +583,7 @@ export async function replicateEdition(provider: WalletProvider, buyerKey: Signe
   const funding = await toFundingInputs(provider, selected)
 
   const rep = await buildReplicateTx({ edition, terms: params.terms, buyerKey, funding, note: params.note, feePerKb })
-  const repChange = rep.changeVout != null ? (rep.tx.outputs[rep.changeVout]?.satoshis ?? 0) : 0
+  const repChange = rep.changeVout != null ? (rep.tx.outputs[rep.changeVout]?.value ?? 0) : 0
   if (params.confirmSpend != null && !(await params.confirmSpend(spentSats(selected, repChange)))) {
     throw new Error(SPEND_CANCELLED)
   }
@@ -544,10 +591,10 @@ export async function replicateEdition(provider: WalletProvider, buyerKey: Signe
   provider.registerPendingTx(rep.txId,
     [{ txId: params.editionTxId, outputIndex: params.editionOutputIndex },
       ...selected.map(u => ({ txId: u.txId, outputIndex: u.outputIndex }))],
-    rep.changeVout != null ? { outputIndex: rep.changeVout, satoshis: rep.tx.outputs[rep.changeVout].satoshis ?? 0 } : undefined)
+    rep.changeVout != null ? { outputIndex: rep.changeVout, satoshis: rep.tx.outputs[rep.changeVout].value ?? 0 } : undefined)
   return {
     txId: rep.txId, replicaOutpoint: { txId: rep.txId, outputIndex: rep.replicaVout },
-    lockHex: hexOf(rep.tx.outputs[rep.replicaVout].lockingScript.toBinary()),
+    lockHex: hexOf(Array.from(rep.tx.outputs[rep.replicaVout].script)),
   }
 }
 
@@ -565,8 +612,12 @@ export async function replicateEdition(provider: WalletProvider, buyerKey: Signe
  */
 export function deriveVoucherKey(publisherKey: Signer, tx1RefHex: string, index: number): Signer {
   const idx = [index & 0xff, (index >> 8) & 0xff, (index >> 16) & 0xff, (index >> 24) & 0xff]
-  const seed = [...(publisherKey.toArray('be', 32) as number[]), ...hexBytes(tx1RefHex), ...idx]
-  return new Signer(sha256Bytes(seed))
+  /* ⚠⚠⚠ BYTE-IDENTICAL DERIVATION IS A HARD REQUIREMENT, NOT A PREFERENCE. Vouchers already handed out
+     were derived by the deployed wallet; if this produces a different key the publisher cannot sweep an
+     unclaimed voucher and the recipient cannot claim it. The seed is the private key as 32 big-endian
+     bytes, then the collection id, then the index as 4 little-endian bytes — unchanged. */
+  const seed = [...Array.from(beBytes(publisherKey.d, 32)), ...hexBytes(tx1RefHex), ...idx]
+  return Signer.fromPrivateKey(Uint8Array.from(sha256Bytes(seed)))
 }
 
 /**
@@ -590,21 +641,24 @@ export async function createGiftVouchers(provider: WalletProvider, publisherKey:
   if (selected.length === 0) throw new Error('Insufficient funds to create the gift vouchers.')
   const funding = await toFundingInputs(provider, selected)
 
-  const tx = new Tx()
-  for (const f of funding) {
-    tx.addInput({ sourceTransaction: f.sourceTx, sourceOutputIndex: f.utxo.outputIndex, unlockingScriptTemplate: new P2PKH().unlock(publisherKey) })
-  }
+  const tx = new Tx(1, [], [], 0)
+  addFunding(tx, funding)
   for (const k of keys) {
-    tx.addOutput({ lockingScript: scriptForAddress(k.toAddress()), satoshis: params.fundEachSats })
+    tx.outputs.push({ value: params.fundEachSats, script: scriptForAddress(k.address()) })
   }
   const changeVout = tx.outputs.length
-  tx.addOutput({ lockingScript: scriptForAddress(publisherKey.toAddress()), change: true })
-  await tx.fee(new SatoshisPerKilobyte(feePerKb))
-  await tx.sign()
-  await provider.broadcast(tx.toHex())
+  tx.outputs.push({ value: 0, script: publisherKey.lockingScript() })
+  applyFee(tx, {
+    inputValues: funding.map(f => f.utxo.satoshis),
+    unlockingSizes: funding.map(() => UNLOCK_P2PKH),
+    changeVout,
+    satPerKb: feePerKb,
+  })
+  signFunding(tx, publisherKey, funding)
+  await provider.broadcast(tx.hex())
   const txId = tx.txid()
   provider.registerPendingTx(txId, selected.map(u => ({ txId: u.txId, outputIndex: u.outputIndex })),
-    (tx.outputs[changeVout]?.satoshis ?? 0) > 0 ? { outputIndex: changeVout, satoshis: tx.outputs[changeVout].satoshis ?? 0 } : undefined)
+    (tx.outputs[changeVout]?.value ?? 0) > 0 ? { outputIndex: changeVout, satoshis: tx.outputs[changeVout].value ?? 0 } : undefined)
   return { fundingTxId: txId, voucherWifs: keys.map(k => k.toWif()) }
 }
 
@@ -633,7 +687,7 @@ export async function scanGiftVouchers(
   let consecutiveEmpty = 0
   for (let i = 0; i < max && consecutiveEmpty < gapLimit; i++) {
     const k = deriveVoucherKey(publisherKey, tx1RefHex, i)
-    const script = p2pkhScript(Hash.hash160(k.toPublicKey().encode(true) as number[]))
+    const script = p2pkhScript(hash160Bytes(Array.from(k.publicKey())))
     // Check the MEMPOOL-AWARE unspent set first — a just-funded (unconfirmed) live voucher appears here but
     // NOT in confirmed-only getAddressHistory. If it's unspent → live. If not, it may be funded-then-claimed,
     // so fall back to history (confirmed) + recent (mempool) to keep the gap scan from bailing early.
@@ -641,8 +695,8 @@ export async function scanGiftVouchers(
     try { unspent = await provider.getUnspentByScriptHash(wocScriptHash(script)) } catch { /* best-effort */ }
     let funded = unspent.length > 0
     if (!funded) {
-      try { funded = (await provider.getAddressHistory(k.toAddress())).length > 0 } catch { /* best-effort */ }
-      if (!funded) { try { funded = (await provider.getRecentTxIdsForAddress(k.toAddress())).length > 0 } catch { /* best-effort */ } }
+      try { funded = (await provider.getAddressHistory(k.address())).length > 0 } catch { /* best-effort */ }
+      if (!funded) { try { funded = (await provider.getRecentTxIdsForAddress(k.address())).length > 0 } catch { /* best-effort */ } }
     }
     if (!funded) { consecutiveEmpty++; continue }
     consecutiveEmpty = 0
@@ -666,12 +720,12 @@ export async function scanVoucherHashes(
   let consecutiveEmpty = 0
   for (let i = 0; i < max && consecutiveEmpty < gapLimit; i++) {
     const k = deriveVoucherKey(publisherKey, tx1RefHex, i)
-    const pkh = Hash.hash160(k.toPublicKey().encode(true) as number[])
+    const pkh = hash160Bytes(Array.from(k.publicKey()))
     let funded = false
     try { funded = (await provider.getUnspentByScriptHash(wocScriptHash(p2pkhScript(pkh)))).length > 0 } catch { /* try history */ }
     if (!funded) {
-      try { funded = (await provider.getAddressHistory(k.toAddress())).length > 0 } catch { /* try recent */ }
-      if (!funded) { try { funded = (await provider.getRecentTxIdsForAddress(k.toAddress())).length > 0 } catch { /* unknown → treat as empty */ } }
+      try { funded = (await provider.getAddressHistory(k.address())).length > 0 } catch { /* try recent */ }
+      if (!funded) { try { funded = (await provider.getRecentTxIdsForAddress(k.address())).length > 0 } catch { /* unknown → treat as empty */ } }
     }
     if (!funded) { consecutiveEmpty++; continue }
     consecutiveEmpty = 0
@@ -688,29 +742,40 @@ export async function scanVoucherHashes(
 export async function sweepGiftVouchers(
   provider: WalletProvider, publisherKey: Signer, live: Array<{ wif: string }>, opts?: { feePerKb?: number },
 ): Promise<{ swept: number; reclaimedSats: number; txId: string } | null> {
-  const tx = new Tx()
-  let inputs = 0, swept = 0
+  /* ⚠⚠ EVERY INPUT HERE IS SIGNED BY A DIFFERENT KEY — one per unclaimed voucher — so `signFunding`,
+     which signs a whole run with one signer, does not apply. Each input is signed on its own below,
+     against ITS OWN key and ITS OWN amount. ⚠ Getting either wrong produces a transaction that looks
+     complete and is refused by the network for a bad script. */
+  const tx = new Tx(1, [], [], 0)
+  const spends: Array<{ key: Signer; satoshis: number }> = []
+  let swept = 0
   for (const v of live) {
     const k = Signer.fromWif(v.wif)
-    const script = p2pkhScript(Hash.hash160(k.toPublicKey().encode(true) as number[]))
+    const script = p2pkhScript(hash160Bytes(Array.from(k.publicKey())))
     let utxos: Utxo[] = []
     try { utxos = await provider.getUnspentByScriptHash(wocScriptHash(script)) } catch { continue }
     let any = false
     for (const u of utxos) {
-      let src: Tx
-      try { src = await provider.getSourceTransaction(u.txId) } catch { continue }
-      tx.addInput({ sourceTransaction: src, sourceOutputIndex: u.outputIndex, unlockingScriptTemplate: new P2PKH().unlock(k) })
-      inputs++; any = true
+      tx.inputs.push({ txid: txidToWire(u.txId), vout: u.outputIndex, script: new Uint8Array(0), sequence: 0xffffffff })
+      spends.push({ key: k, satoshis: u.satoshis })
+      any = true
     }
     if (any) swept++
   }
-  if (inputs === 0) return null
-  tx.addOutput({ lockingScript: scriptForAddress(publisherKey.toAddress()), change: true }) // everything back to you, minus fee
-  await tx.fee(new SatoshisPerKilobyte(opts?.feePerKb ?? DEFAULT_FEE_PER_KB))
-  await tx.sign()
-  await provider.broadcast(tx.toHex())
+  if (spends.length === 0) return null
+  tx.outputs.push({ value: 0, script: publisherKey.lockingScript() })   // everything back to you, minus the fee
+  applyFee(tx, {
+    inputValues: spends.map(sp => sp.satoshis),
+    unlockingSizes: spends.map(() => UNLOCK_P2PKH),
+    changeVout: 0,
+    satPerKb: opts?.feePerKb ?? DEFAULT_FEE_PER_KB,
+  })
+  spends.forEach((sp, i) => {
+    tx.inputs[i].script = sp.key.unlockP2PKH(tx, i, sp.key.lockingScript(), sp.satoshis)
+  })
+  await provider.broadcast(tx.hex())
   const txId = tx.txid()
-  const reclaimedSats = tx.outputs[0]?.satoshis ?? 0
+  const reclaimedSats = tx.outputs[0]?.value ?? 0
   provider.registerPendingTx(txId, [], reclaimedSats > 0 ? { outputIndex: 0, satoshis: reclaimedSats } : undefined)
   return { swept, reclaimedSats, txId }
 }
@@ -730,19 +795,19 @@ export async function claimGiftEdition(provider: WalletProvider, ownerKey: Signe
   feePerKb?: number
 }): Promise<{ txId: string; replicaOutpoint: { txId: string; outputIndex: number }; lockHex: string }> {
   const giftKey = Signer.fromWif(params.giftWif)
-  const giftScript = p2pkhScript(Hash.hash160(giftKey.toPublicKey().encode(true) as number[]))
+  const giftScript = p2pkhScript(hash160Bytes(Array.from(giftKey.publicKey())))
   const giftUtxos = await provider.getUnspentByScriptHash(wocScriptHash(giftScript))
   if (giftUtxos.length === 0) throw new Error('This free copy has already been claimed.')
   const funding = await toFundingInputs(provider, giftUtxos)
 
   const lockBytes = hexBytes(params.editionLockHex)
-  const parsed = parseEditionScript(LockingScript.fromBinary(lockBytes))
+  const parsed = parseEditionScript(LockingScript.fromBinary(Uint8Array.from(lockBytes)))
   if (parsed == null) throw new Error('claimGiftEdition: not an edition covenant')
   const sourceTx = params.editionSourceTx ?? await provider.getSourceTransaction(params.editionTxId)
-  const tokenSats = sourceTx.outputs[params.editionOutputIndex]?.satoshis ?? PHARLAP_OUTPUT_SATS
-  const edition: EditionUtxo = { txId: params.editionTxId, outputIndex: params.editionOutputIndex, satoshis: tokenSats, lockBytes, sourceTx }
-  const ownerPub = ownerKey.toPublicKey().encode(true) as number[]
-  const changeAddress = ownerKey.toAddress()
+  const tokenSats = sourceTx.outputs[params.editionOutputIndex]?.value ?? PHARLAP_OUTPUT_SATS
+  const edition: EditionUtxo = { txId: params.editionTxId, outputIndex: params.editionOutputIndex, satoshis: tokenSats, lockBytes }
+  const ownerPub = Array.from(ownerKey.publicKey())
+  const changeAddress = ownerKey.address()
 
   /* ⚠ THIS USED TO BRANCH ON THE COVENANT VERSION. There is one version, so there is one path. */
   let rep: ReplicateResult
@@ -756,10 +821,10 @@ export async function claimGiftEdition(provider: WalletProvider, ownerKey: Signe
   await provider.broadcast(rep.tx.hex())
   provider.registerPendingTx(rep.txId,
     [{ txId: params.editionTxId, outputIndex: params.editionOutputIndex }, ...giftUtxos.map(u => ({ txId: u.txId, outputIndex: u.outputIndex }))],
-    rep.changeVout != null ? { outputIndex: rep.changeVout, satoshis: rep.tx.outputs[rep.changeVout].satoshis ?? 0 } : undefined)
+    rep.changeVout != null ? { outputIndex: rep.changeVout, satoshis: rep.tx.outputs[rep.changeVout].value ?? 0 } : undefined)
   return {
     txId: rep.txId, replicaOutpoint: { txId: rep.txId, outputIndex: rep.replicaVout },
-    lockHex: hexOf(rep.tx.outputs[rep.replicaVout].lockingScript.toBinary()),
+    lockHex: hexOf(Array.from(rep.tx.outputs[rep.replicaVout].script)),
   }
 }
 
@@ -777,9 +842,9 @@ export async function transferEdition(provider: WalletProvider, ownerKey: Signer
   const feePerKb = params.feePerKb ?? DEFAULT_FEE_PER_KB
   const lockBytes = hexBytes(params.editionLockHex)
   const sourceTx = await provider.getSourceTransaction(params.editionTxId)
-  const bond = sourceTx.outputs[params.editionOutputIndex]?.satoshis ?? PHARLAP_OUTPUT_SATS
+  const bond = sourceTx.outputs[params.editionOutputIndex]?.value ?? PHARLAP_OUTPUT_SATS
   const edition: EditionUtxo = {
-    txId: params.editionTxId, outputIndex: params.editionOutputIndex, satoshis: bond, lockBytes, sourceTx,
+    txId: params.editionTxId, outputIndex: params.editionOutputIndex, satoshis: bond, lockBytes,
   }
   // The bond rides forward from the spent input onto out0, so funding only covers the note carrier + fee + margin.
   const noteSats = params.note ? PHARLAP_OUTPUT_SATS : 0
@@ -794,10 +859,10 @@ export async function transferEdition(provider: WalletProvider, ownerKey: Signer
   provider.registerPendingTx(xfer.txId,
     [{ txId: params.editionTxId, outputIndex: params.editionOutputIndex },
       ...selected.map(u => ({ txId: u.txId, outputIndex: u.outputIndex }))],
-    xfer.changeVout != null ? { outputIndex: xfer.changeVout, satoshis: xfer.tx.outputs[xfer.changeVout].satoshis ?? 0 } : undefined)
+    xfer.changeVout != null ? { outputIndex: xfer.changeVout, satoshis: xfer.tx.outputs[xfer.changeVout].value ?? 0 } : undefined)
   return {
     txId: xfer.txId, tokenOutpoint: { txId: xfer.txId, outputIndex: xfer.tokenVout },
-    lockHex: hexOf(xfer.tx.outputs[xfer.tokenVout].lockingScript.toBinary()),
+    lockHex: hexOf(Array.from(xfer.tx.outputs[xfer.tokenVout].script)),
   }
 }
 
@@ -821,7 +886,7 @@ export async function buildEditionBurnTx(opts: {
      out of the reclaimed amount, and if the bond cannot cover it `applyFee` is the thing that must say
      so rather than emitting a negative output. */
   const unlockOpts = { ownerKey: opts.ownerKey, lockBytes, sourceSatoshis: opts.edition.satoshis }
-  const sizedUnlock = burnUnlock(tx, 0, unlockOpts).length
+  const sizedUnlock = burnUnlock(tx, 0, { ...unlockOpts, forSizing: true }).length
   applyFee(tx, {
     inputValues: [opts.edition.satoshis],
     unlockingSizes: [sizedUnlock],
@@ -829,8 +894,8 @@ export async function buildEditionBurnTx(opts: {
     satPerKb: opts.feePerKb ?? DEFAULT_FEE_PER_KB,
   })
   const finalUnlock = burnUnlock(tx, 0, unlockOpts)
-  assertStableLength(sizedUnlock, finalUnlock.length, 'burn')
-  tx.inputs[0].script = Uint8Array.from(finalUnlock)
+  assertNotLonger(sizedUnlock, finalUnlock.length, 'burn')
+  tx.inputs[0].script = finalUnlock
 
   return { tx, txId: tx.txid(), reclaimVout: 0, reclaimSats: tx.outputs[0]?.value ?? 0 }
 }
@@ -845,8 +910,8 @@ export async function burnEdition(provider: WalletProvider, ownerKey: Signer, pa
 }): Promise<{ txId: string; reclaimSats: number }> {
   const lockBytes = hexBytes(params.editionLockHex)
   const sourceTx = await provider.getSourceTransaction(params.editionTxId)
-  const satoshis = sourceTx.outputs[params.editionOutputIndex]?.satoshis ?? 0
-  const edition: EditionUtxo = { txId: params.editionTxId, outputIndex: params.editionOutputIndex, satoshis, lockBytes, sourceTx }
+  const satoshis = sourceTx.outputs[params.editionOutputIndex]?.value ?? 0
+  const edition: EditionUtxo = { txId: params.editionTxId, outputIndex: params.editionOutputIndex, satoshis, lockBytes }
   const r = await buildEditionBurnTx({ edition, ownerKey, feePerKb: params.feePerKb })
   await provider.broadcast(r.tx.hex())
   provider.registerPendingTx(r.txId, [{ txId: params.editionTxId, outputIndex: params.editionOutputIndex }],
@@ -946,7 +1011,7 @@ export async function scanIncomingEditions(
     for (const o of tx.outputs) {
       const ed = parseEditionScript(o.lockingScript)
       if (ed == null || ed.ownerPubKeyHex.toLowerCase() !== mine) continue
-      scripts.set(hexOf(o.lockingScript.toBinary()), ed.tx1RefHex)
+      scripts.set(hexOf(Array.from(o.script)), ed.tx1RefHex)
     }
   }
   if (cache) for (const [k, v] of scripts) cache.scripts.set(k, v) // persist merged discoveries
@@ -1029,7 +1094,7 @@ export async function scanCollectionBuyers(
     if (ed == null || ed.tx1RefHex !== params.collectionId) continue
     if (hexOf(ed.terms.publisherPubKeyHash).toLowerCase() !== want) continue
     const buyerBytes = hexBytes(ed.ownerPubKeyHex)
-    if (hexOf(Hash.hash160(buyerBytes)).toLowerCase() === want) continue // skip your own genesis/self copies
+    if (hexOf(hash160Bytes(buyerBytes)).toLowerCase() === want) continue // skip your own genesis/self copies
     const k = ed.ownerPubKeyHex.toLowerCase()
     const h = blockHeight || 0
     const rec = byBuyer.get(k)
@@ -1140,7 +1205,7 @@ export async function scanMySales(
     const buyerHex = ed.ownerPubKeyHex
     const cid = ed.tx1RefHex
     const publisherHash = hexOf(ed.terms.publisherPubKeyHash).toLowerCase()
-    if (hexOf(Hash.hash160(hexBytes(buyerHex))).toLowerCase() === publisherHash) continue // genesis/self
+    if (hexOf(hash160Bytes(hexBytes(buyerHex))).toLowerCase() === publisherHash) continue // genesis/self
     const iPublish = publisherHash === myHash
     let iSourced = false
     try {
