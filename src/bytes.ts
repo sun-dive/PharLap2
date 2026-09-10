@@ -17,6 +17,9 @@
  */
 import { fromHex, toHex as u8ToHex, fromUtf8, toUtf8 } from '../impl/js/bytes.mjs'
 import { hash160 } from '../impl/js/bip32.mjs'
+import { p2pkhAddress } from '../impl/js/address.mjs'
+import { decodePoint } from '../impl/js/ecdsa.mjs'
+import { serP } from '../impl/js/secp256k1.mjs'
 import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js'
 
 /** hex → bytes. ⚠ An empty string is an empty array, not a throw: an absent field is not an error. */
@@ -39,3 +42,18 @@ export const hash160Bytes = (b: number[]): number[] => Array.from(hash160(Uint8A
  *   between the two is the difference between a key and a number.
  */
 export const randomBytes = (n: number): number[] => Array.from(crypto.getRandomValues(new Uint8Array(n)))
+
+/**
+ * The mainnet address for someone ELSE's public key, given as hex.
+ *
+ * ⚠⚠⚠ THE KEY IS NORMALISED TO COMPRESSED FIRST, AND THAT IS NOT A TIDY-UP. Measured against the
+ *   deployed behaviour: a 65-byte uncompressed key hashes to the COMPRESSED key's address, because the
+ *   library parsed it into a point before serialising. ⇒ Hashing the hex as given would produce a
+ *   different, valid-looking address, and a scan would then look for a publisher's records at a place
+ *   they have never posted to. Nothing would error; the answer would simply be empty.
+ */
+export const addressFromPubHex = (hex: string): string => {
+  const point = decodePoint(Uint8Array.from(hexBytes(hex)))
+  if (point === null) throw new Error(`not a valid public key: ${hex.slice(0, 16)}…`)
+  return p2pkhAddress(serP(point))
+}
