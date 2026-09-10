@@ -13,8 +13,13 @@
  * exponentiation, and a `%` that returns NEGATIVE results for negative operands. Every one of those is
  * a place to get it wrong differently.
  *
- * ⚠⚠ NOT CONSTANT TIME, and not trying to be. This derives from published test vectors; it does not
- * guard money. When Phar Lap 2 signs, it uses a real library.
+ * ⚠⚠⚠ NOT CONSTANT TIME — AND NEITHER IS THE SIGNING PATH. This line used to say that signing was done
+ * elsewhere, by something hardened. That stopped being true when this project took the signing over:
+ * `ecdsa.mjs` is our own code, on JavaScript BigInt, and BigInt arithmetic is not constant time either.
+ *   ⇒ So the honest statement is that NOTHING here resists a timing attacker, and the mitigation is not
+ *     in the arithmetic: it is that a key is used in a browser the user controls, and that the
+ *     air-gapped path exists for anything material. → `docs/AIR_GAPPED.md`
+ *   ⛔ Do not read this file's caution as implying some other file is safe.
  */
 
 import { concat, beBytes } from './bytes.mjs'
@@ -40,6 +45,16 @@ function modPow(base, exp, m) {
 }
 
 const inv = a => modPow(a, P - 2n, P)      // Fermat — P is prime
+
+/**
+ * ★ EXPORTED, because two other modules need them and were each carrying their own copy. Modular
+ *   exponentiation and an inverse are curve arithmetic; they belong here, once.
+ * ⚠ `invN` is modulo **N**, the ORDER — not modulo P, the field. They are different numbers and
+ *   using the wrong one produces a plausible result that verifies nowhere. Signature maths, and the
+ *   OP_PUSH_TX constants, both work in the order.
+ */
+export { modPow, mod }
+export const invN = a => modPow(mod(a, N), N - 2n, N)
 
 /** A point is {x, y}, or null for the point at infinity. */
 export function add(p, q) {

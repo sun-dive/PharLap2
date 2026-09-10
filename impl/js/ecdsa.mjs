@@ -2,8 +2,8 @@
 /**
  * ECDSA over secp256k1 — signing, verification, and STRICT DER.
  *
- * ★ THIS FILE OWNS THE SIGNING PATH. `secp256k1.mjs` was written for BIP-32 derivation and deferred
- *   signing to a library; that deferral is what this replaces. The wallet's signing path is its own.
+ * ★ THIS FILE OWNS THE SIGNING PATH. `secp256k1.mjs` was written for BIP-32 derivation and did not sign
+ *   at all; signing happens here, and nowhere else.
  *
  * ⛔⛔ STRICT DER, AND THE RULE THAT IS EASIEST TO MISS:
  *   A DER INTEGER is SIGNED. One whose top bit is set REQUIRES a leading `0x00`, or the value reads as
@@ -18,13 +18,11 @@
  *   ⇒ Scalar blinding below decorrelates timing without pretending to solve it. **For anything
  *   material, sign air-gapped.**
  */
-import { N, P, G, mul, add, serP } from './secp256k1.mjs'
+import { N, P, G, mul, add, serP, mod, modPow, invN } from './secp256k1.mjs'
 import { rfc6979k } from './rfc6979.mjs'
 import { concat, beBytes, toBigBE } from './bytes.mjs'
 
-const mod = (a, m) => ((a % m) + m) % m
-const modPow = (b, e, m) => { let r = 1n; b = mod(b, m); while (e > 0n) { if (e & 1n) r = (r * b) % m; b = (b * b) % m; e >>= 1n } return r }
-const invN = a => modPow(mod(a, N), N - 2n, N)
+// ⚠ mod, modPow and invN come from the curve module — they were duplicated here.
 
 /* ⚠ `beBytes` and `toBigBE` live in bytes.mjs — one copy of the left-padding rule, not three. */
 const toBig = toBigBE
