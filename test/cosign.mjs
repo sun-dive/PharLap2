@@ -22,6 +22,7 @@ import { Signer, txidToWire } from '../impl/js/signer.mjs'
 import { Tx } from '../impl/js/transaction.mjs'
 import { Script } from '../impl/js/script.mjs'
 import { scriptForAddress } from '../impl/js/address.mjs'
+import { hash160 } from '../impl/js/bip32.mjs'
 import { toHex, fromUtf8, concat } from '../impl/js/bytes.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -141,9 +142,24 @@ function assembled({ mySats, changeSats, extraOutputs = [] }) {
      so assigning an unlocking script could appear to succeed, return a txid, and hand on the UNSIGNED
      transaction. Our transaction has no such cache — but this asserts the outcome rather than the
      absence, because that is the property, and the next implementation might cache again. */
-  const sig = Script.fromBinary(after.inputs[0].script).chunks[0]
+  const chunks = Script.fromBinary(after.inputs[0].script).chunks
+  const sig = chunks[0]
   ok(sig?.data != null && Signer.verifyInput(after, 0, me.lockingScript(), 5000, me.publicKey(), sig.data),
      '★★★ and the signature in the RETURNED bytes verifies — not merely assigned somewhere and lost')
+
+  /* ⚠⚠ A P2PKH INPUT IS TWO CLAIMS, AND CHECKING ONE IS NOT CHECKING BOTH. The script asks: does the
+     pushed key HASH to the hash in the lock, and does its signature verify. A signature can be perfectly
+     valid under a key that the locking script never authorised.
+     ⛔ THIS IS ALSO AN HONEST GAP AGAINST THE DEPLOYED TEST, which ran the input through a script
+       INTERPRETER and so checked both plus the opcodes. This repository has no interpreter, so the two
+       claims are asserted directly instead. That is most of the distance, not all of it, and the
+       shortfall is written here rather than left for someone to assume away. */
+  const pushedKey = chunks[1]?.data
+  const lockHash = me.lockingScript().slice(3, 23)
+  ok(pushedKey != null && toHex(pushedKey) === toHex(me.publicKey()),
+     '★★ the unlocking script pushes a public key as well as a signature')
+  ok(pushedKey != null && toHex(hash160(pushedKey)) === toHex(lockHash),
+     '★★★ …and that key HASHES to the hash the locking script names — the other half of a P2PKH')
   ok(r.txId === after.txid() && r.txId !== before.txid(),
      '★★ the returned txid is the SIGNED transaction’s, and it differs from the unsigned one')
 }
