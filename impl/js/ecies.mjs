@@ -24,7 +24,7 @@
  * ★ Encrypt-then-MAC, and the MAC is checked BEFORE anything is decrypted. Verifying afterwards would
  *   mean running a cipher over bytes an attacker chose.
  */
-import { mul, serP } from './secp256k1.mjs'
+import { mulBlinded, serP } from './secp256k1.mjs'
 import { decodePoint } from './ecdsa.mjs'
 import { concat, fromUtf8, timingSafeEquals } from './bytes.mjs'
 import { sha512 } from '@noble/hashes/sha2.js'
@@ -52,7 +52,7 @@ function sharedSecret(priv, pub) {
   //   wrong, which is the difference between a caller fixing it and a caller filing a bug.
   const point = decodePoint(pub)
   if (point === null) throw new EciesError('the public key does not decode')
-  return sha512(serP(mul(priv, point)))
+  return sha512(serP(mulBlinded(priv, point)))   // ⚠ priv is SECRET
 }
 
 const keysFrom = H => ({ iv: H.subarray(0, 16), keyE: H.subarray(16, 32), keyM: H.subarray(32, 64) })

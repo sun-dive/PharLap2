@@ -110,6 +110,46 @@ honours `Retry-After`. ⚠ Without one, a rate limit surfaces as a verification 
 indistinguishable from a bad proof. **A verifier that reports "invalid" when it was merely throttled is
 worse than one that waits.**
 
+### ★ Every secret scalar goes through a fixed-width ladder, blinded
+
+Phar Lap 1 handed signing to a library. Phar Lap 2 signs with its own curve code, so the timing question
+became ours. Two defences, because they cover different things:
+
+| | |
+|---|---|
+| a **Montgomery ladder**, fixed pattern and **fixed width** | hides which bits are set, and how many there are |
+| **blinding**, `(k + b·n)·P == k·P` and `(k·t)⁻¹·t == k⁻¹` | means the bits walked are not the key's in the first place |
+
+Five call sites: the nonce and its inverse in `sign`, public key derivation, BIP-32 child derivation,
+and the ECIES shared secret.
+
+⚠⚠ **The fixed WIDTH is the part that is usually missed, including by the library this replaced.** Its
+ladder loops over `k.toString(2)`, so the iteration count is the scalar's bit length. Measured on it:
+1.28 ms at 256 bits, 0.96 ms at 192, 0.34 ms at 64. A nonce that happens to be short is visible to
+anyone who can time the signature, and short nonces are what lattice attacks on ECDSA consume. Fixing
+the width costs nothing.
+
+★★ **And it made signing 19× faster, which was not the goal.** The old code was affine, so every point
+addition needed a modular inverse — about 330 `modPow` calls per multiply. Jacobian coordinates defer
+that to **one** inversion at the end. The ladder does roughly twice the point operations and still runs
+in a fraction of the time: **40.5 ms → 2.10 ms** per signature. Constant-time is normally a cost; here
+it paid for itself because the thing it replaced was the expensive part.
+
+⚠⚠ **It was written once and did nothing for a day.** `mulBlinded` lived in `ecdsa.mjs` and called
+`mul`, whose first line is `k = mod(k, N)` — reducing `k + b·n` straight back to `k`. Measured, the
+blinded call cost **0.998×** the unblinded one. Every test stayed green throughout, because blinding is
+invisible in the result; that is the whole point of it.
+
+⇒ `test/blinding.mjs` therefore **measures** rather than reads: it counts point operations, and reads
+back the scalar the ladder was actually handed through a seam. Fifteen mutants are written against it,
+including the original bug and the bit-length leak. Fourteen fail the suite. The one that survives is
+the degenerate branch in Jacobian addition, unreachable from the ladder's only call site, and it is
+labelled as untested in the source rather than left to look covered.
+
+⛔ This raises the cost of a timing attack. It does not make the implementation hardened, and the field
+inversion inside every point addition is still value-dependent. **For anything material, sign
+air-gapped.**
+
 ---
 
 ## 6 · Why there is a dependency at all

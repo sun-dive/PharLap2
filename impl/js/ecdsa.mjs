@@ -15,10 +15,12 @@
  *
  * ⚠⚠ NOT CONSTANT TIME, and cannot be. That is a property of JavaScript rather than of any particular
  *   implementation: JIT compilation and garbage collection put it out of reach in a scripting language.
- *   ⇒ Scalar blinding below decorrelates timing without pretending to solve it. **For anything
- *   material, sign air-gapped.**
+ *   ⇒ The two secrets on this path are BLINDED instead — the nonce through `mulBlinded`, its inverse
+ *     through `invNBlinded`, both in `secp256k1.mjs` where `mulRaw` guarantees the blinding is not
+ *     reduced away. That RAISES THE COST of a timing attack; it does not remove it.
+ *   **For anything material, sign air-gapped.**
  */
-import { N, P, G, mul, add, serP, mod, modPow, invN } from './secp256k1.mjs'
+import { N, P, G, mul, mulBlinded, add, serP, mod, modPow, invN, invNBlinded } from './secp256k1.mjs'
 import { rfc6979k } from './rfc6979.mjs'
 import { concat, beBytes, toBigBE } from './bytes.mjs'
 
@@ -27,20 +29,12 @@ import { concat, beBytes, toBigBE } from './bytes.mjs'
 /* ⚠ `beBytes` and `toBigBE` live in bytes.mjs — one copy of the left-padding rule, not three. */
 const toBig = toBigBE
 
-/**
- * ★ Scalar blinding: `(k + b·n)·P == k·P` because `n·P` is the point at infinity.
- * ⇒ The ladder runs over a different bit pattern each time, which decorrelates timing from the secret
- *   WITHOUT needing constant-time arithmetic. ⚠ Mitigation, not a fix — see the module note.
- */
-function mulBlinded(k, pt = G, rand) {
-  k = mod(k, N)
-  if (k === 0n) return null
-  const b = rand ? toBigBE(rand(8)) : 0n
-  return mul(k + b * N, pt)
-}
+/* ⚠ `mulBlinded` USED TO LIVE HERE, and it did nothing: it called `mul`, which reduces mod N and so
+   erased the blinding. It now lives in the curve module next to `mulRaw`, the only multiply that does
+   not reduce — so the two cannot drift apart again. See the note at the top of `secp256k1.mjs`. */
 
 export function publicKey(d, compressed = true) {
-  const pt = mul(mod(d, N), G)
+  const pt = mulBlinded(mod(d, N), G)           // ⚠ d is SECRET — never the plain `mul` here
   if (pt === null) throw new Error('private key out of range')
   return compressed ? serP(pt) : concat(Uint8Array.of(0x04), beBytes(pt.x, 32), beBytes(pt.y, 32))
 }
@@ -106,7 +100,9 @@ export function sign(d, digest32, { lowS = false, rand } = {}) {
     if (pt === null) continue
     const r = mod(pt.x, N)
     if (r === 0n) continue                       // ★ retry steps the generator forward, never randomly
-    let s = mod(invN(k) * (z + r * mod(d, N)), N)
+    /* ⚠ `invNBlinded`, not `invN`: `k` is the secret nonce, and `modPow`'s work depends on its base.
+       Verification below uses the plain `invN` because `s` there is public. */
+    let s = mod(invNBlinded(k, rand) * (z + r * mod(d, N)), N)
     if (s === 0n) continue
     /* ⚠⚠ LOW-S IS NOT A PROTOCOL RULE, AND HAS NOT BEEN SINCE APRIL 2026.
        It is a BIP-62 malleability rule from 2015. **Chronicle removed it** — mainnet block 943,816,

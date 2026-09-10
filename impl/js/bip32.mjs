@@ -9,7 +9,7 @@ import { sha256 } from '@noble/hashes/sha2.js'
 import { sha512 } from '@noble/hashes/sha2.js'
 import { ripemd160 } from '@noble/hashes/legacy.js'
 import { hmac } from '@noble/hashes/hmac.js'
-import { G, N, add, mul, serP, ser32, ser256 } from './secp256k1.mjs'
+import { G, N, add, mul, mulBlinded, serP, ser32, ser256 } from './secp256k1.mjs'
 import { concat, fromHex, fromUtf8, toBigBE } from './bytes.mjs'
 
 const XPRV = fromHex('0488ade4')
@@ -39,7 +39,7 @@ export function b58check(payload) {
 export class Node {
   constructor(k, K, chain, depth = 0, parentFp = new Uint8Array(4), index = 0) {
     this.k = k                                  // BigInt, or null for a watch-only node
-    this.K = K ?? mul(k)
+    this.K = K ?? mulBlinded(k)          // ⚠ k is a SECRET child key
     this.chain = chain
     this.depth = depth
     this.parentFp = parentFp
@@ -86,7 +86,7 @@ export class Node {
       if (k === 0n) return this.child(index + 1)
       return new Node(k, null, IR, this.depth + 1, this.fingerprint(), index)
     }
-    const K = add(mul(IL), this.K)
+    const K = add(mulBlinded(IL), this.K)   // ⚠ IL is secret-derived
     if (K === null) return this.child(index + 1)      // the point at infinity — same rule
     return new Node(null, K, IR, this.depth + 1, this.fingerprint(), index)
   }
