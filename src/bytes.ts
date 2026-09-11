@@ -57,3 +57,10 @@ export const addressFromPubHex = (hex: string): string => {
   if (point === null) throw new Error(`not a valid public key: ${hex.slice(0, 16)}…`)
   return p2pkhAddress(serP(point))
 }
+
+/** A public key given as hex in either form, as its compressed 33-byte hex. Throws on an invalid key. */
+export const compressedPubKeyHex = (hex: string): string => {
+  const point = decodePoint(Uint8Array.from(hexBytes(hex)))
+  if (point === null) throw new Error(`not a valid public key: ${hex.slice(0, 16)}…`)
+  return u8ToHex(serP(point))
+}
