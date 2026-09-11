@@ -4157,6 +4157,13 @@
       this.pendingUtxos = /* @__PURE__ */ new Map();
       // key: "txId:outputIndex"
       this.spentOutpoints = /* @__PURE__ */ new Set();
+      // ── Raw Transactions ──────────────────────────────────────────
+      /* ⚠ One fetch per txid at a time. The cache fills only when a fetch lands, and several scans ask for the
+         same transaction in the same moment (a scan of holdings, a note lookup and a publisher lookup all want
+         the transaction that delivered an edition). Without this, each asks the network in turn, 2 s apiece
+         behind the rate limiter. Measured on a live replicate: 20 of 45 requests were repeats. */
+      this.rawInFlight = /* @__PURE__ */ new Map();
+      this.parsedInFlight = /* @__PURE__ */ new Map();
       this.address = address2;
     }
     getAddress() {
@@ -4359,23 +4366,42 @@
       }
       throw new Error(`Parent tx ${txId} never appeared in a relay mempool \u2014 aborting before the dependent tx to avoid "Missing inputs". Please retry the mint.`);
     }
-    // ── Raw Transactions ──────────────────────────────────────────
     async getRawTransaction(txId) {
       const cached = this.txCache.get(txId);
       if (cached) return cached;
-      const resp = await fetchWithRetry(`${WOC_BASE}/tx/${txId}/hex`);
-      if (!resp.ok) throw new Error(`WoC raw TX fetch failed: ${resp.status}`);
-      const hex = await resp.text();
-      this.txCache.set(txId, hex);
-      return hex;
+      const pending = this.rawInFlight.get(txId);
+      if (pending) return pending;
+      const p = (async () => {
+        const resp = await fetchWithRetry(`${WOC_BASE}/tx/${txId}/hex`);
+        if (!resp.ok) throw new Error(`WoC raw TX fetch failed: ${resp.status}`);
+        const hex = await resp.text();
+        this.txCache.set(txId, hex);
+        return hex;
+      })();
+      this.rawInFlight.set(txId, p);
+      try {
+        return await p;
+      } finally {
+        this.rawInFlight.delete(txId);
+      }
     }
     async getSourceTransaction(txId) {
       const cached = this.parsedTxCache.get(txId);
       if (cached) return cached;
-      const hex = await this.getRawTransaction(txId);
-      const tx = Tx.parse(hex);
-      this.parsedTxCache.set(txId, tx);
-      return tx;
+      const pending = this.parsedInFlight.get(txId);
+      if (pending) return pending;
+      const p = (async () => {
+        const hex = await this.getRawTransaction(txId);
+        const tx = Tx.parse(hex);
+        this.parsedTxCache.set(txId, tx);
+        return tx;
+      })();
+      this.parsedInFlight.set(txId, p);
+      try {
+        return await p;
+      } finally {
+        this.parsedInFlight.delete(txId);
+      }
     }
     /**
      * Fetch ONE output's locking-script hex via WoC, STREAMING the body and bailing the moment it exceeds
@@ -15102,7 +15128,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"aaad20e"} \xB7 ${"2026-09-11"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"f854aa2"} \xB7 ${"2026-09-11"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
