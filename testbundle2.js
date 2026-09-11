@@ -13440,8 +13440,15 @@ It's posted on-chain (a small one-off fee) so anyone can listen before buying. R
     if (known.length) resolveAvatarsThen(known, rerender);
     if (todo.length === 0) return;
     void Promise.all(todo.map(resolvePublisherKey)).then((keys) => {
+      let wrote = false;
+      keys.forEach((k, i) => {
+        if (k != null) {
+          store2.setPublisherPubKey(todo[i].collectionId, k);
+          wrote = true;
+        }
+      });
+      if (!wrote) return;
       const got = keys.filter((v) => v != null);
-      if (got.length === 0) return;
       resolveAvatarsThen(got, rerender);
       rerender();
     });
@@ -15128,7 +15135,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"f854aa2"} \xB7 ${"2026-09-11"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"7e39e6e"} \xB7 ${"2026-09-11"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
