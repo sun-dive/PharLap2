@@ -203,14 +203,7 @@ choice would be visible. The choice has been made; the injection is gone.
 
 ## 7 · What is NOT here yet
 
-⚠⚠ **THE INTERFACE.** Phar Lap 1 is a browser app — `index.html` plus a bundle — and none of that has
-been brought across. What exists here is the wallet and the layers directly under the interface: keys,
-coins, scripts, transactions, signing, the network, and the builders a payment and a mint go through.
-
-⏭ Also open: **authenticated encryption between two parties**, used by the messaging and settings-backup
-features. Not on the path to sending a payment.
-
-★★★ **And nothing has been broadcast.** Every check in this repository grades against frozen chain data,
+★★★ **Nothing has been broadcast.** Every check in this repository grades against frozen chain data,
 the specifications' published vectors, openssl, an injected transport, or the deployed wallet's own
 bytes. That is a strong position and it is not the same as having spent a satoshi. **The first real send
 is the one none of it can stand in for.**
