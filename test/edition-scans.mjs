@@ -24,6 +24,9 @@ const tmp = mkdtempSync(join(tmpdir(), 'escan-'))
 await build({ entryPoints: [join(HERE, '..', 'src', 'editionBuilder.ts')], bundle: true, outfile: join(tmp, 'eb.mjs'),
               platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
 const EB = await import(pathToFileURL(join(tmp, 'eb.mjs')).href)
+await build({ entryPoints: [join(HERE, '..', 'src', 'covenant.ts')], bundle: true, outfile: join(tmp, 'cv.mjs'),
+              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+const CV = await import(pathToFileURL(join(tmp, 'cv.mjs')).href)
 
 const publisher = Signer.fromSeed(new Uint8Array(64).fill(71))
 const holder = Signer.fromSeed(new Uint8Array(64).fill(72))
@@ -66,6 +69,13 @@ const genesis = await EB.buildEditionGenesisTx({ key: publisher, funding: fundin
   ok(found[0]?.lockHex === toHex(genesis.tx.outputs[genesis.editionVouts[0]].script), '★ …and the exact lock script')
   ok(found[0]?.height === 900001, '★ …and its height')
   ok((await EB.scanIncomingEditions(p, toHex(buyer.publicKey()))).length === 0, '⛔ a key that holds nothing finds nothing')
+
+  // ★ the card asks whether the edition can be burned; the answer comes from the script's own opcodes
+  const lock = Array.from(genesis.tx.outputs[genesis.editionVouts[0]].script)
+  let burn = null, threw = ''
+  try { burn = CV.editionSupportsBurn(lock) } catch (e) { threw = String(e.message) }
+  ok(threw === '' && burn === true, `★★ editionSupportsBurn reads the minted script and says yes${threw ? ' — THREW: ' + threw : ''}`)
+  ok(CV.editionSupportsBurn(Array.from(holder.lockingScript())) === false, '★ …and says no for a plain P2PKH script')
 }
 
 // ── ★★★ 2 · after a replication, the buyer holds a copy and the publisher sees the buyer ─────────────

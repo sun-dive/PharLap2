@@ -391,8 +391,8 @@ export function buildEditionLock(p: Omit<EditionParams, 'fieldPubkeyOffset'>): L
 /** Whether an edition lock has the burn branch (3-way dispatch). A v1 edition's only OP_NUMEQUAL is in the
  *  burn dispatch, so its presence cleanly distinguishes burn-capable (bonded) editions from older ones. */
 export function editionSupportsBurn(lockBytes: number[]): boolean {
-  const chunks = LockingScript.fromBinary(lockBytes).chunks
-  return chunks != null && chunks.some(c => c.op === OP.OP_NUMEQUAL)
+  const chunks = CoreLockingScript.fromBinary(Uint8Array.from(lockBytes)).chunks
+  return chunks != null && chunks.some((c: { op: number }) => c.op === OP.OP_NUMEQUAL)
 }
 
 
