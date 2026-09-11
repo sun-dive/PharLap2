@@ -221,7 +221,12 @@ swapped, the publisher and holder fees are the script's own terms, and the fee r
 `3b56998bb5fa0d174d66f27b59a32faf0d80cb174c7ee57277d559de1d0d6b09` transfers the replica to another wallet
 under the owner's signature, which verifies under the edition lock for the bond.
 
-What has not yet happened on chain from this wallet: a mint and a burn.
+`726aa1a7…` and `adfaa4b2…` burn two copies: the covenant is the only input, the unlock carries the
+exact introspection preimage, the owner's signature verifies under the edition lock, and the bond less
+the fee returns to the wallet. Replication and burn were then used repeatedly, with the response near
+instant once the local bookkeeping and the retire-on-absence bug were fixed on 12 September.
+
+What has not yet happened on chain from this wallet: a mint.
 
 ---
 
