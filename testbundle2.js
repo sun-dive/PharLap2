@@ -6965,7 +6965,7 @@
         continue;
       }
       for (const o of tx.outputs) {
-        const ed = parseEditionScript(o.lockingScript);
+        const ed = parseEditionScript(LockingScript.fromBinary(o.script));
         if (ed == null || ed.ownerPubKeyHex.toLowerCase() !== mine) continue;
         scripts.set(hexOf(Array.from(o.script)), ed.tx1RefHex);
       }
@@ -7037,7 +7037,7 @@
       }
       const replica = tx.outputs[1];
       if (replica == null) continue;
-      const ed = parseEditionScript(replica.lockingScript);
+      const ed = parseEditionScript(LockingScript.fromBinary(replica.script));
       if (ed == null || ed.tx1RefHex !== params.collectionId) continue;
       if (hexOf(ed.terms.publisherPubKeyHash).toLowerCase() !== want) continue;
       const buyerBytes = hexBytes(ed.ownerPubKeyHex);
@@ -15102,7 +15102,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"c1277e1"} \xB7 ${"2026-09-11"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"df2fb17"} \xB7 ${"2026-09-11"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
