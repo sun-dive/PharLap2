@@ -3248,8 +3248,16 @@ function resolvePublisherIdentitiesThen(tokens: StoredToken[], rerender: () => v
   if (known.length) resolveAvatarsThen(known, rerender)
   if (todo.length === 0) return
   void Promise.all(todo.map(resolvePublisherKey)).then(keys => {
+    /* ⚠⚠ WRITE THE KEY ONTO THE STORE BEFORE RE-RENDERING, EVERY TIME. The in-flight map hands back a key it
+       resolved earlier, and a copy stored since then (a replica just minted) carries no key yet. Re-rendering
+       without writing it finds that copy unresolved again, resolves it from the map in a microtask, and
+       re-renders again, without ever yielding to the event loop: 100 % CPU, no timers, memory climbing until
+       the browser is killed. Measured 12 Sept 2026 on a live replicate. So: write, and re-render only if a
+       write happened. */
+    let wrote = false
+    keys.forEach((k, i) => { if (k != null) { store.setPublisherPubKey(todo[i].collectionId, k); wrote = true } })
+    if (!wrote) return
     const got = keys.filter((v): v is string => v != null)
-    if (got.length === 0) return
     resolveAvatarsThen(got, rerender) // pull their profiles too
     rerender()                        // show the chip now (identicon until the avatar lands)
   })
