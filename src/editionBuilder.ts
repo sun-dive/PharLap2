@@ -1006,7 +1006,7 @@ export async function scanIncomingEditions(
     let tx: Tx
     try { tx = await provider.getSourceTransaction(txId) } catch { continue }
     for (const o of tx.outputs) {
-      const ed = parseEditionScript(o.lockingScript)
+      const ed = parseEditionScript(LockingScript.fromBinary(o.script))
       if (ed == null || ed.ownerPubKeyHex.toLowerCase() !== mine) continue
       scripts.set(hexOf(Array.from(o.script)), ed.tx1RefHex)
     }
@@ -1087,7 +1087,7 @@ export async function scanCollectionBuyers(
     try { tx = await provider.getSourceTransaction(txId) } catch { continue }
     const replica = tx.outputs[1]
     if (replica == null) continue
-    const ed = parseEditionScript(replica.lockingScript)
+    const ed = parseEditionScript(LockingScript.fromBinary(replica.script))
     if (ed == null || ed.tx1RefHex !== params.collectionId) continue
     if (hexOf(ed.terms.publisherPubKeyHash).toLowerCase() !== want) continue
     const buyerBytes = hexBytes(ed.ownerPubKeyHex)
