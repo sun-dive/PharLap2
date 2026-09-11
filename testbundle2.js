@@ -6209,7 +6209,7 @@
     return LockingScript2.from(editionLockOps({ ...p, fieldPubkeyOffset: varIntSize + O }));
   }
   function editionSupportsBurn(lockBytes) {
-    const chunks = LockingScript2.fromBinary(lockBytes).chunks;
+    const chunks = LockingScript.fromBinary(Uint8Array.from(lockBytes)).chunks;
     return chunks != null && chunks.some((c) => c.op === OP.OP_NUMEQUAL);
   }
   var EDITION_OWNER_SCRIPT_OFFSET = 40;
@@ -15102,7 +15102,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"df2fb17"} \xB7 ${"2026-09-11"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"aaad20e"} \xB7 ${"2026-09-11"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
