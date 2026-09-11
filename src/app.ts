@@ -1077,8 +1077,11 @@ async function noteToPropagate(t: StoredToken): Promise<SellerNote | undefined> 
 async function pruneIfEditionSpent(t: StoredToken): Promise<boolean> {
   if (!t.lockHex) return false
   try {
-    const unspent = await provider.getUnspentByScriptHash(wocScriptHash(hexBytes(t.lockHex)))
-    if (unspent.some(u => u.txId === t.txId && u.outputIndex === t.outputIndex)) return false // still live — keep it
+    /* ⚠ RETIRE ONLY ON A NAMED SPENDER. The by-script unspent list was used here before, and a holding was
+       retired because the explorer's answer happened to be empty while the copy was live. An output that is
+       gone has a transaction that took it; the explorer names it, and nothing less counts. */
+    const spender = await provider.getSpendingTx(t.txId, t.outputIndex)
+    if (spender == null) return false // no spender on record — keep it
     store.markSent(t.txId, t.outputIndex) // genuinely spent: retire the stale active entry
     renderTokens()
     return true
@@ -1713,7 +1716,11 @@ async function onCheckIncoming(): Promise<void> {
         ...(e.sellerNote?.bonusValue ? { bonusKind: e.sellerNote.bonusKind, bonusValue: e.sellerNote.bonusValue } : {}),
         ...(e.height ? { heightHint: e.height } : {}),
       })) edAdded++
-      else store.setCollectionName(e.txId, e.outputIndex, name) // backfill the real title on older "Edition" entries
+      else {
+        // A retired entry the chain still shows unspent comes back: the scan is the authority, not the last click.
+        if (store.reactivate(e.txId, e.outputIndex)) edAdded++
+        store.setCollectionName(e.txId, e.outputIndex, name) // backfill the real title on older "Edition" entries
+      }
     }
   } catch (e) { errors.push(`editions: ${(e as Error).message}`) }
 

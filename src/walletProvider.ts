@@ -556,6 +556,21 @@ export class WalletProvider {
    * back to the confirmed-only `/unspent` if `/all` isn't available. `scriptHash` is SHA-256(scriptBytes)
    * byte-reversed (Electrum/WoC convention).
    */
+  /**
+   * The transaction that spent an output, or null when the explorer knows of none. ⚠ A null is NOT proof the
+   * output is live; it is the absence of a record. Callers that retire a holding must act only on a named
+   * spender. Measured 12 Sept 2026: the explorer's address index fell hours behind while its by-script
+   * list was intact, and a holding was retired on one empty answer.
+   */
+  async getSpendingTx(txId: string, outputIndex: number): Promise<{ txId: string; unconfirmed: boolean } | null> {
+    const resp = await fetchWithRetry(`${WOC_BASE}/tx/${txId}/${outputIndex}/spent`)
+    if (resp.status === 404) return null
+    if (!resp.ok) throw new Error(`WoC spent lookup failed: ${resp.status}`)
+    const d = await resp.json().catch(() => null) as { txid?: string; status?: string } | null
+    if (d == null || typeof d.txid !== 'string' || !/^[0-9a-f]{64}$/i.test(d.txid)) return null
+    return { txId: d.txid.toLowerCase(), unconfirmed: d.status === 'unconfirmed' }
+  }
+
   async getUnspentByScriptHash(scriptHash: string): Promise<Utxo[]> {
     const mapRows = (data: any): Utxo[] => {
       const rows: any[] = Array.isArray(data?.result) ? data.result : (Array.isArray(data) ? data : [])

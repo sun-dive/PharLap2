@@ -162,6 +162,19 @@ export class PharLapStore {
     this.write(tokens)
   }
 
+  /** Bring a retired entry back when the chain shows its outpoint unspent. Returns true if one was revived. */
+  reactivate(txId: string, outputIndex: number): boolean {
+    const k = outpointKey({ txId, outputIndex })
+    let revived = false
+    const tokens = this.list().map(t => {
+      if (outpointKey(t) !== k || t.status === 'active') return t
+      revived = true
+      return { ...t, status: 'active' as const }
+    })
+    if (revived) this.write(tokens)
+    return revived
+  }
+
   remove(txId: string, outputIndex: number): void {
     const k = outpointKey({ txId, outputIndex })
     this.write(this.list().filter(t => outpointKey(t) !== k))

@@ -213,6 +213,22 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
   ok(r1 && r2 && bad.calls.length === 2, '⛔ a failed fetch is not cached: the next caller tries the network again')
 }
 
+// ── ⛔ a holding is retired only on a NAMED spender ─────────────────────────────────────────────────
+//
+// ⚠ The by-script unspent list answered empty once while a copy was live, and the wallet retired the copy.
+//   The spent lookup names the transaction that took an output; a 404 is the absence of a record, not a
+//   spend, and the caller keeps the holding.
+{
+  const spent = wired(url => (/\/tx\/[0-9a-f]{64}\/1\/spent$/.test(url) ? resp({ txid: B, vin: 0, status: 'unconfirmed' }) : resp({}, 404)))
+  const r = await spent.p.getSpendingTx(A, 1)
+  ok(r !== null && r.txId === B && r.unconfirmed === true, '★★ a named spender comes back with its txid and confirmation state')
+  ok((await spent.p.getSpendingTx(A, 0)) === null, '★★★ a 404 is null: no record, not a spend')
+  const flaky = wired(() => resp('', 500))
+  ok(await rejects(flaky.p.getSpendingTx(A, 1), 'spent lookup failed'), '⛔ a server error throws rather than answering null')
+  const junk = wired(() => resp({ txid: 'not-a-txid' }))
+  ok((await junk.p.getSpendingTx(A, 1)) === null, '★ a malformed answer is null, never a spend')
+}
+
 rmSync(tmp, { recursive: true, force: true })
 console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [wallet layer · the deployed file, adapted]`)
 process.exit(fail === 0 ? 0 : 1)
