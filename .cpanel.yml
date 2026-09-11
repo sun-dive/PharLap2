@@ -1,0 +1,26 @@
+---
+# cPanel Git™ Version Control deployment for Phar Lap 2 — TEST deployment.
+#
+# In cPanel → Git Version Control, clone this repository (branch: main) and click "Deploy HEAD Commit".
+# cPanel runs the tasks below.
+#
+# ⚠ The target is a SUBDIRECTORY of the smartnfts.com document root, never the root itself. The live
+#   Phar Lap deploys to "$HOME/smartnfts.com/" and this must not touch it. Everything the app loads is a
+#   relative path, its server endpoints and share links are built under the directory it is served from,
+#   and its browser storage keys carry their own prefix, so a copy here shares nothing with the live app.
+#
+# testbundle2.js is committed for this copy step. It is the build output of src/, refreshed on each publish.
+deployment:
+  tasks:
+    - export DEPLOYPATH="$HOME/smartnfts.com/pharlap2test/"
+    - /bin/mkdir -p "$DEPLOYPATH"
+    - /bin/cp index.html "$DEPLOYPATH"
+    - /bin/cp testbundle2.js "$DEPLOYPATH"
+    - /bin/cp jsqr.min.js "$DEPLOYPATH"
+    - /bin/cp -R brand "$DEPLOYPATH"
+    - /bin/cp share.php "$DEPLOYPATH"
+    - /bin/cp register.php "$DEPLOYPATH"
+    - /bin/cp shorten.php "$DEPLOYPATH"
+    - /bin/cp .htaccess "$DEPLOYPATH"
+    - /bin/mkdir -p "$DEPLOYPATH/og"
+    - /bin/mkdir -p "$DEPLOYPATH/links"

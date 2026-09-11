@@ -54,8 +54,12 @@ declare const __APP_VERSION__: string
 declare const __BUILD_ID__: string
 declare const __BUILD_DATE__: string
 
-const WIF_KEY = 'p:wallet:wif'
-const WATCH_KEY = 'p:wallet:watch' // present → watch-only: pubkey hex, no private key on this box
+/** The directory this page is served from: '/' at the domain root, '/pharlap2test/' in a test deploy. Every
+ *  server endpoint and share link is built under it, so a copy in a subdirectory never reaches another copy's. */
+const APP_BASE = location.pathname.replace(/[^/]*$/, '')
+
+const WIF_KEY = 'p2:wallet:wif'
+const WATCH_KEY = 'p2:wallet:watch' // present → watch-only: pubkey hex, no private key on this box
 
 let key: Signer | null // null in watch-only mode (the online box holds no key)
 let pubKeyHex: string
@@ -102,8 +106,8 @@ document.addEventListener('click', e => {
 })
 
 // ─── wallet ─────────────────────────────────────────────────────────
-const MNEMONIC_KEY = 'p:wallet:mnemonic'
-const BACKED_UP_KEY = 'p:wallet:backedUp' // set once the user confirms they've written the seed down
+const MNEMONIC_KEY = 'p2:wallet:mnemonic'
+const BACKED_UP_KEY = 'p2:wallet:backedUp' // set once the user confirms they've written the seed down
 // Fixed BIP-44 path (236 = BSV coin type). MUST never change — restores derive the same key from it.
 const DERIVATION_PATH = "m/44'/236'/0'/0/0"
 
@@ -289,17 +293,17 @@ function extractRefCode(input: string): string | null {
   return null
 }
 function myRefCode(): string | null {
-  try { return localStorage.getItem('p:affRefCode') } catch { return null }
+  try { return localStorage.getItem('p2:affRefCode') } catch { return null }
 }
 /** Persisted ref-code of whoever GIFTED this wallet (set on a gift claim; rides in the config backup so it
  *  survives a wallet restore on a new device). Lets a gifter keep earning from a user they onboarded. */
 function refByCode(): string | null {
-  try { return localStorage.getItem('p:refBy') } catch { return null }
+  try { return localStorage.getItem('p2:refBy') } catch { return null }
 }
 /** On a gift claim, remember the gifter's ref-code so their referral persists for this (often new) wallet. */
 function rememberGifter(): void {
   if (incomingAff == null || incomingAff === '') return
-  try { if (localStorage.getItem('p:refBy') == null) localStorage.setItem('p:refBy', incomingAff) } catch { /* ignore */ }
+  try { if (localStorage.getItem('p2:refBy') == null) localStorage.setItem('p2:refBy', incomingAff) } catch { /* ignore */ }
 }
 /** The Buy-BSV (SimpleSwap) URL for the active context. Precedence: a share link's aff (current page) → your
  *  own saved code → who gifted you (persisted) → app default. `||` so an empty code falls through cleanly.
@@ -325,7 +329,7 @@ function withAff(url: string): string {
 function collectionShareUrl(txid: string, holder: string, giftWif?: string): string {
   const params = new URLSearchParams({ h: holder })
   if (giftWif) params.set('g', giftWif)
-  return withAff(`${location.origin}/c/${txid}#${params.toString()}`)
+  return withAff(`${location.origin}${APP_BASE}c/${txid}#${params.toString()}`)
 }
 
 /** Shorten a share link via the server: registers {txid, holder, referral} (PUBLIC only — never the
@@ -334,12 +338,12 @@ function collectionShareUrl(txid: string, holder: string, giftWif?: string): str
  *  and still previews). The referral is folded into the code, so it drops out of the visible link. */
 async function shortShareBase(txid: string, holder: string): Promise<string | null> {
   try {
-    const r = await fetch('/shorten.php', {
+    const r = await fetch(`${APP_BASE}shorten.php`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ txid, holder, aff: myRefCode() ?? undefined }),
     })
     const data = await r.json().catch(() => null)
-    if (r.ok && data != null && typeof data.code === 'string' && data.code) return `${location.origin}/s/${data.code}`
+    if (r.ok && data != null && typeof data.code === 'string' && data.code) return `${location.origin}${APP_BASE}s/${data.code}`
   } catch { /* fall back to the full link */ }
   return null
 }
@@ -372,7 +376,7 @@ async function registerOgAssets(info: CollectionInfo): Promise<void> {
   ogRegistered.add(info.tx1Ref)
   try {
     const cover = info.cover ? await coverToJpegDataUrl(info.cover) : null
-    await fetch('/register.php', {
+    await fetch(`${APP_BASE}register.php`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ txid: info.tx1Ref, title: info.name, description: info.description, cover: cover ?? undefined }),
     })
@@ -388,12 +392,12 @@ function renderAffField(): void {
 function onSaveAff(): void {
   const raw = val('affRefCode')
   if (raw === '') {
-    try { localStorage.removeItem('p:affRefCode') } catch { /* ignore */ }
+    try { localStorage.removeItem('p2:affRefCode') } catch { /* ignore */ }
     setStatus('Referral code cleared — your shared links use the app default.', 'ok'); return
   }
   const code = extractRefCode(raw)
   if (code == null) { setStatus('That doesn’t look like a SimpleSwap link or ref-code.', 'error'); return }
-  try { localStorage.setItem('p:affRefCode', code) } catch { /* ignore */ }
+  try { localStorage.setItem('p2:affRefCode', code) } catch { /* ignore */ }
   ;($('affRefCode') as HTMLInputElement).value = code
   setStatus('Saved — your shared sales pages now carry your Buy-BSV referral.', 'ok')
 }
@@ -1766,7 +1770,7 @@ let viewerUrl: string | null = null
 // small (~5 MB) for media; IndexedDB handles hundreds of MB. Entirely best-effort — any failure (private
 // mode, quota, no IndexedDB) silently falls back to fetching from chain.
 interface CachedContent { mimeType: string; fileName: string; bytes: Uint8Array; verified: boolean; msg: string }
-const CONTENT_DB = 'pharlap-content', CONTENT_STORE = 'content'
+const CONTENT_DB = 'pharlap2-content', CONTENT_STORE = 'content'
 let contentDbPromise: Promise<IDBDatabase | null> | null = null
 function openContentDb(): Promise<IDBDatabase | null> {
   if (contentDbPromise != null) return contentDbPromise
@@ -1975,7 +1979,7 @@ let albumUrls: string[] = []
 let epTeardown: (() => void) | null = null
 // Visualization preference (persists across tracks/sessions): the disc either SPINS (default) or, in "speaker"
 // mode, stays still and pushes in/out with the bass — a no-rotation option for anyone the spinning makes dizzy.
-let epVizSpeaker: boolean = (() => { try { return localStorage.getItem('pharlap:viz') === 'speaker' } catch { return false } })()
+let epVizSpeaker: boolean = (() => { try { return localStorage.getItem('pharlap2:viz') === 'speaker' } catch { return false } })()
 function revokeAlbumUrls(): void {
   if (epTeardown) { try { epTeardown() } catch { /* ignore */ } epTeardown = null }
   for (const u of albumUrls) URL.revokeObjectURL(u)
@@ -2168,7 +2172,7 @@ function renderPlayer(host: HTMLElement, srcTracks: AlbumTrack[], fallbackCover?
   }
   vizToggle.onclick = () => {
     epVizSpeaker = !epVizSpeaker
-    try { localStorage.setItem('pharlap:viz', epVizSpeaker ? 'speaker' : 'disc') } catch { /* private mode — session only */ }
+    try { localStorage.setItem('pharlap2:viz', epVizSpeaker ? 'speaker' : 'disc') } catch { /* private mode — session only */ }
     applyViz()
   }
   applyViz()
@@ -2696,7 +2700,7 @@ function closeTokenModal(): void {
 function setNftView(v: 'list' | 'grid'): void {
   if (nftView === v) return
   nftView = v
-  try { localStorage.setItem('p:nftview', v) } catch { /* fine */ }
+  try { localStorage.setItem('p2:nftview', v) } catch { /* fine */ }
   updateViewToggle()
   renderTokens()
 }
@@ -2704,7 +2708,7 @@ function setNftView(v: 'list' | 'grid'): void {
 function setNftSort(s: 'recent' | 'publisher'): void {
   if (nftSort === s) return
   nftSort = s
-  try { localStorage.setItem('p:nftsort', s) } catch { /* fine */ }
+  try { localStorage.setItem('p2:nftsort', s) } catch { /* fine */ }
   updateSortToggle()
   renderTokens()
 }
@@ -3009,25 +3013,25 @@ let pinned: Record<string, 1> = {} // pubkeyHex(lc) → 1 if you set a CUSTOM la
 function persist(k: string, v: object): void { try { localStorage.setItem(k, JSON.stringify(v)) } catch { /* quota */ } }
 
 function loadAliases(): void {
-  try { contacts = JSON.parse(localStorage.getItem('p:contacts') ?? '{}') } catch { contacts = {} }
-  try { contactsAt = JSON.parse(localStorage.getItem('p:contactsAt') ?? '{}') } catch { contactsAt = {} }
-  try { seenAliases = JSON.parse(localStorage.getItem('p:aliases') ?? '{}') } catch { seenAliases = {} }
-  try { pinned = JSON.parse(localStorage.getItem('p:pinned') ?? '{}') } catch { pinned = {} }
-  try { avatars = JSON.parse(localStorage.getItem('p:avatars') ?? '{}') } catch { avatars = {} }
+  try { contacts = JSON.parse(localStorage.getItem('p2:contacts') ?? '{}') } catch { contacts = {} }
+  try { contactsAt = JSON.parse(localStorage.getItem('p2:contactsAt') ?? '{}') } catch { contactsAt = {} }
+  try { seenAliases = JSON.parse(localStorage.getItem('p2:aliases') ?? '{}') } catch { seenAliases = {} }
+  try { pinned = JSON.parse(localStorage.getItem('p2:pinned') ?? '{}') } catch { pinned = {} }
+  try { avatars = JSON.parse(localStorage.getItem('p2:avatars') ?? '{}') } catch { avatars = {} }
 }
-function getMyAlias(): string { try { return (localStorage.getItem('p:myalias') ?? '').trim() } catch { return '' } }
+function getMyAlias(): string { try { return (localStorage.getItem('p2:myalias') ?? '').trim() } catch { return '' } }
 function setMyAlias(a: string): void {
-  try { localStorage.setItem('p:myalias', a); localStorage.setItem('p:myaliasAt', String(nowMs())) } catch { /* fine */ }
+  try { localStorage.setItem('p2:myalias', a); localStorage.setItem('p2:myaliasAt', String(nowMs())) } catch { /* fine */ }
   markConfigDirty()
 }
 
 // ─── config backup bookkeeping ──────────────────────────────────────
 const nowMs = (): number => { try { return Date.now() } catch { return 0 } }
 /** updatedAt for a contact (set on save/rename/remove) — drives newest-wins restore merge + the dirty nudge. */
-function touchContact(k: string): void { contactsAt[k.toLowerCase()] = nowMs(); persist('p:contactsAt', contactsAt); markConfigDirty() }
+function touchContact(k: string): void { contactsAt[k.toLowerCase()] = nowMs(); persist('p2:contactsAt', contactsAt); markConfigDirty() }
 /** Mark local config changed since the last backup; refresh the nudge if the Contacts modal is open. */
 function markConfigDirty(): void {
-  try { localStorage.setItem('p:cfgDirty', String((parseInt(localStorage.getItem('p:cfgDirty') ?? '0', 10) || 0) + 1)) } catch { /* fine */ }
+  try { localStorage.setItem('p2:cfgDirty', String((parseInt(localStorage.getItem('p2:cfgDirty') ?? '0', 10) || 0) + 1)) } catch { /* fine */ }
   updateCfgBackupNote()
 }
 
@@ -3038,12 +3042,12 @@ function rememberAlias(pubKeyHex: string, alias: string): void {
   if (alias === '') return
   const k = pubKeyHex.toLowerCase()
   if (contacts[k] != null) {
-    if (!pinned[k] && contacts[k] !== alias) { contacts[k] = alias; persist('p:contacts', contacts); touchContact(k) } // follow rename
+    if (!pinned[k] && contacts[k] !== alias) { contacts[k] = alias; persist('p2:contacts', contacts); touchContact(k) } // follow rename
     return
   }
   if (seenAliases[k] === alias) return
   seenAliases[k] = alias
-  persist('p:aliases', seenAliases)
+  persist('p2:aliases', seenAliases)
 }
 
 /** Apply only each key's LATEST self-claim from a NEWEST-FIRST list (first occurrence per key wins), so an
@@ -3064,20 +3068,20 @@ function saveContact(pubKeyHex: string, alias: string, customLabel = false): voi
   contacts[k] = alias
   if (customLabel) pinned[k] = 1; else delete pinned[k]
   delete seenAliases[k]
-  persist('p:contacts', contacts); persist('p:pinned', pinned); persist('p:aliases', seenAliases)
+  persist('p2:contacts', contacts); persist('p2:pinned', pinned); persist('p2:aliases', seenAliases)
   touchContact(k)
 }
 
 function removeContact(pubKeyHex: string): void {
   const k = pubKeyHex.toLowerCase()
   delete contacts[k]; delete pinned[k]
-  persist('p:contacts', contacts); persist('p:pinned', pinned)
+  persist('p2:contacts', contacts); persist('p2:pinned', pinned)
   touchContact(k) // bump timestamp so a later backup reflects the change (deletes don't sync — no tombstones)
 }
 
 function ignoreSeen(pubKeyHex: string): void {
   delete seenAliases[pubKeyHex.toLowerCase()]
-  try { localStorage.setItem('p:aliases', JSON.stringify(seenAliases)) } catch { /* fine */ }
+  try { localStorage.setItem('p2:aliases', JSON.stringify(seenAliases)) } catch { /* fine */ }
 }
 
 /** Re-render every surface that shows names, after a contact change. */
@@ -3134,7 +3138,7 @@ function cachedAvatar(pubKeyHex: string): string | null {
 }
 function setAvatar(pubKeyHex: string, value: string): void {
   avatars[pubKeyHex.toLowerCase()] = value
-  try { localStorage.setItem('p:avatars', JSON.stringify(avatars)) } catch { /* quota */ }
+  try { localStorage.setItem('p2:avatars', JSON.stringify(avatars)) } catch { /* quota */ }
 }
 
 /** Avatar (published image) if known, else the identicon — both wear the key-derived ring/colour. */
@@ -3187,7 +3191,7 @@ async function fetchProfileInto(k: string): Promise<boolean> {
     // envelope is the fresher, authoritative source for renames (a published profile can lag behind it).
     let aliasChanged = false
     if (prof?.alias != null && prof.alias !== '' && contacts[k] == null && seenAliases[k] == null) {
-      seenAliases[k] = prof.alias; persist('p:aliases', seenAliases); aliasChanged = true
+      seenAliases[k] = prof.alias; persist('p2:aliases', seenAliases); aliasChanged = true
     }
     return avatarChanged || aliasChanged
   } catch { return false } // transient: leave unresolved for a later retry
@@ -3377,8 +3381,8 @@ function updateMsgToName(): void {
 }
 
 // ─── config backup / restore ────────────────────────────────────────
-function cfgDirtyCount(): number { try { return parseInt(localStorage.getItem('p:cfgDirty') ?? '0', 10) || 0 } catch { return 0 } }
-function lastBackupAt(): number { try { return parseInt(localStorage.getItem('p:cfgBackupAt') ?? '0', 10) || 0 } catch { return 0 } }
+function cfgDirtyCount(): number { try { return parseInt(localStorage.getItem('p2:cfgDirty') ?? '0', 10) || 0 } catch { return 0 } }
+function lastBackupAt(): number { try { return parseInt(localStorage.getItem('p2:cfgBackupAt') ?? '0', 10) || 0 } catch { return 0 } }
 
 /** Refresh the "N changes since last backup" nudge in the Contacts modal (no-op if it isn't mounted). */
 function updateCfgBackupNote(): void {
@@ -3398,11 +3402,11 @@ async function onConfigBackup(): Promise<void> {
     let prefs: Record<string, string> = {}
     // p:refBy (who gifted this wallet) + p:affRefCode (your own ref-code) ride along so referral attribution
     // survives a wallet restore on a new device (option-1 cross-device carry).
-    try { for (const k of ['p:nftview', 'p:nftsort', 'p:refBy', 'p:affRefCode']) { const v = localStorage.getItem(k); if (v != null) prefs[k] = v } } catch { prefs = {} }
-    const aliasAt = (() => { try { return parseInt(localStorage.getItem('p:myaliasAt') ?? '0', 10) || 0 } catch { return 0 } })()
+    try { for (const k of ['p2:nftview', 'p2:nftsort', 'p2:refBy', 'p2:affRefCode']) { const v = localStorage.getItem(k); if (v != null) prefs[k] = v } } catch { prefs = {} }
+    const aliasAt = (() => { try { return parseInt(localStorage.getItem('p2:myaliasAt') ?? '0', 10) || 0 } catch { return 0 } })()
     const txId = await publishConfigBackup(provider, myKey,
       { alias: getMyAlias() || undefined, aliasAt, contacts, contactsAt, prefs }, nowMs())
-    try { localStorage.setItem('p:cfgBackupAt', String(nowMs())); localStorage.setItem('p:cfgDirty', '0') } catch { /* fine */ }
+    try { localStorage.setItem('p2:cfgBackupAt', String(nowMs())); localStorage.setItem('p2:cfgDirty', '0') } catch { /* fine */ }
     updateCfgBackupNote()
     setStatusHtml(`☁ Config backed up (encrypted). Tx ${idChip(txId)}.`, 'ok')
   } catch (e) {
@@ -3415,12 +3419,12 @@ async function restoreConfigFromChain(quiet = false): Promise<number> {
   const myKey = requireKey(); if (myKey == null) return 0
   const blob = await resolveConfigBackup(provider, myKey)
   if (blob == null) { if (!quiet) setStatus('No config backup found for this key.'); return 0 }
-  const aliasAt = (() => { try { return parseInt(localStorage.getItem('p:myaliasAt') ?? '0', 10) || 0 } catch { return 0 } })()
+  const aliasAt = (() => { try { return parseInt(localStorage.getItem('p2:myaliasAt') ?? '0', 10) || 0 } catch { return 0 } })()
   const merged = mergeConfig({ alias: getMyAlias() || undefined, aliasAt, contacts, contactsAt }, blob)
   contacts = merged.contacts; contactsAt = merged.contactsAt
-  persist('p:contacts', contacts); persist('p:contactsAt', contactsAt)
+  persist('p2:contacts', contacts); persist('p2:contactsAt', contactsAt)
   if (merged.alias != null && merged.alias !== getMyAlias()) {
-    try { localStorage.setItem('p:myalias', merged.alias); if (merged.aliasAt != null) localStorage.setItem('p:myaliasAt', String(merged.aliasAt)) } catch { /* fine */ }
+    try { localStorage.setItem('p2:myalias', merged.alias); if (merged.aliasAt != null) localStorage.setItem('p2:myaliasAt', String(merged.aliasAt)) } catch { /* fine */ }
     const ai = document.getElementById('myAlias') as HTMLInputElement | null
     if (ai != null) ai.value = merged.alias ? '@' + merged.alias : ''
   }
@@ -4777,7 +4781,7 @@ function activateTab(name: string): void {
   if (isWatchOnly() && navBtn?.hasAttribute('data-needs-key')) name = 'wallet'
   document.querySelectorAll<HTMLElement>('.tab').forEach(t => t.classList.toggle('is-active', t.dataset.tab === name))
   document.querySelectorAll<HTMLElement>('.tabpanel').forEach(p => p.classList.toggle('is-active', p.id === `tab-${name}`))
-  try { localStorage.setItem('p:activeTab', name) } catch { /* private mode — ignore */ }
+  try { localStorage.setItem('p2:activeTab', name) } catch { /* private mode — ignore */ }
   // Populate the Discussions room list on open (unless a room is already open, so a reload of the tab keeps it).
   if (name === 'discussions' && discAnchor == null) renderDiscRooms()
   if (name === 'sales') void renderSalesTab() // reuses the cached scan after the first visit
@@ -4791,7 +4795,7 @@ function initTabs(): void {
     el.onclick = () => activateTab(el.dataset.goto!)
   })
   let saved: string | null = null
-  try { saved = localStorage.getItem('p:activeTab') } catch { /* ignore */ }
+  try { saved = localStorage.getItem('p2:activeTab') } catch { /* ignore */ }
   if (saved && tabs.some(t => t.dataset.tab === saved)) activateTab(saved)
 }
 
@@ -4802,8 +4806,8 @@ function init(): void {
   const watch = localStorage.getItem(WATCH_KEY)
   if (watch != null) { try { useWatchKey(watch) } catch { localStorage.removeItem(WATCH_KEY); useKey(loadKey()) } }
   else useKey(loadKey())
-  try { if (localStorage.getItem('p:nftview') === 'grid') nftView = 'grid' } catch { /* default list */ }
-  try { if (localStorage.getItem('p:nftsort') === 'publisher') nftSort = 'publisher' } catch { /* default recent */ }
+  try { if (localStorage.getItem('p2:nftview') === 'grid') nftView = 'grid' } catch { /* default list */ }
+  try { if (localStorage.getItem('p2:nftsort') === 'publisher') nftSort = 'publisher' } catch { /* default recent */ }
   updateViewToggle()
   updateSortToggle()
   renderTokens()

@@ -44,7 +44,7 @@ export interface KVStore {
   setItem(key: string, value: string): void
 }
 
-const STORAGE_KEY = 'p:tokens'
+const STORAGE_KEY = 'p2:tokens'
 
 function outpointKey(t: { txId: string; outputIndex: number }): string {
   return `${t.txId}:${t.outputIndex}`
