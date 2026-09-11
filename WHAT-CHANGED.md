@@ -45,12 +45,8 @@ about replacing it.
 another implementation: agreement proves compatibility, never correctness. The oracles are the chain
 itself, the specifications' published vectors, and openssl.
 
-⏭ **Still open: authenticated encryption between two parties**, used by the messaging and
-settings-backup features. Not on the path to sending a payment.
-
-★★ **The open item above is the honest part of this document.** The core derives keys, selects coins,
-builds, signs, broadcasts and verifies end to end. **It is still not a drop-in replacement**, and what is
-missing is stated so a reader does not have to discover it.
+★★ The core derives keys, selects coins, builds, signs, broadcasts and verifies end to end, and
+two-party encryption (`impl/js/ecies.mjs`) opens envelopes already sent on chain.
 
 ⚠⚠ **AND THE LARGER PART IS NOT IN THIS TABLE AT ALL.** Measured 9 Sept: only **659 of the application's
 12,400 lines** touch the removed library — 5%. The remaining work is not replacing symbols, it is that
@@ -58,9 +54,8 @@ transactions were built by a mutable object that filled in its own change and si
 per-input templates, and here everything is decided before anything is constructed. **That is a change of
 shape, not of names**, and it is the bulk of what is left.
 
-★ **Nothing has been broadcast yet.** Every check in this repository grades against frozen chain data,
-published vectors, openssl, or an injected transport. The first real send is the one none of that
-can stand in for.
+★ Until 11 September every check graded against frozen chain data, published vectors, openssl, or an
+injected transport. What has been broadcast since, and verified, is in section 7.
 
 ---
 
