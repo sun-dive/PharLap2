@@ -4542,6 +4542,20 @@
      * back to the confirmed-only `/unspent` if `/all` isn't available. `scriptHash` is SHA-256(scriptBytes)
      * byte-reversed (Electrum/WoC convention).
      */
+    /**
+     * The transaction that spent an output, or null when the explorer knows of none. ⚠ A null is NOT proof the
+     * output is live; it is the absence of a record. Callers that retire a holding must act only on a named
+     * spender. Measured 12 Sept 2026: the explorer's address index fell hours behind while its by-script
+     * list was intact, and a holding was retired on one empty answer.
+     */
+    async getSpendingTx(txId, outputIndex) {
+      const resp = await fetchWithRetry(`${WOC_BASE}/tx/${txId}/${outputIndex}/spent`);
+      if (resp.status === 404) return null;
+      if (!resp.ok) throw new Error(`WoC spent lookup failed: ${resp.status}`);
+      const d = await resp.json().catch(() => null);
+      if (d == null || typeof d.txid !== "string" || !/^[0-9a-f]{64}$/i.test(d.txid)) return null;
+      return { txId: d.txid.toLowerCase(), unconfirmed: d.status === "unconfirmed" };
+    }
     async getUnspentByScriptHash(scriptHash) {
       const mapRows = (data) => {
         const rows = Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
@@ -4720,6 +4734,18 @@
       const k = outpointKey({ txId, outputIndex });
       const tokens = this.list().map((t) => outpointKey(t) === k ? { ...t, status: "sent" } : t);
       this.write(tokens);
+    }
+    /** Bring a retired entry back when the chain shows its outpoint unspent. Returns true if one was revived. */
+    reactivate(txId, outputIndex) {
+      const k = outpointKey({ txId, outputIndex });
+      let revived = false;
+      const tokens = this.list().map((t) => {
+        if (outpointKey(t) !== k || t.status === "active") return t;
+        revived = true;
+        return { ...t, status: "active" };
+      });
+      if (revived) this.write(tokens);
+      return revived;
     }
     remove(txId, outputIndex) {
       const k = outpointKey({ txId, outputIndex });
@@ -11163,8 +11189,8 @@ Proceed?`
   async function pruneIfEditionSpent(t) {
     if (!t.lockHex) return false;
     try {
-      const unspent = await provider.getUnspentByScriptHash(wocScriptHash(hexBytes(t.lockHex)));
-      if (unspent.some((u) => u.txId === t.txId && u.outputIndex === t.outputIndex)) return false;
+      const spender = await provider.getSpendingTx(t.txId, t.outputIndex);
+      if (spender == null) return false;
       store2.markSent(t.txId, t.outputIndex);
       renderTokens();
       return true;
@@ -11841,7 +11867,10 @@ It's posted to your own address and spends a small network fee. Proceed?`
           ...e.sellerNote?.bonusValue ? { bonusKind: e.sellerNote.bonusKind, bonusValue: e.sellerNote.bonusValue } : {},
           ...e.height ? { heightHint: e.height } : {}
         })) edAdded++;
-        else store2.setCollectionName(e.txId, e.outputIndex, name);
+        else {
+          if (store2.reactivate(e.txId, e.outputIndex)) edAdded++;
+          store2.setCollectionName(e.txId, e.outputIndex, name);
+        }
       }
     } catch (e) {
       errors.push(`editions: ${e.message}`);
@@ -15135,7 +15164,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"7e39e6e"} \xB7 ${"2026-09-11"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"07a0e3a"} \xB7 ${"2026-09-11"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
