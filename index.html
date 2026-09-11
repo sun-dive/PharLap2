@@ -1,0 +1,1177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/svg+xml" href="./brand/bitcoin-sv.svg" />
+  <meta name="theme-color" content="#eab300" />
+  <title>SMART NFTs — wallet</title>
+  <meta name="description" content="Content you own that pays you as it spreads. Publish content as a Smart NFT buyers truly own — self-replicating, with publisher and holder royalties enforced on-chain by BSV." />
+
+  <!-- Open Graph / social link previews -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="SMART NFTs" />
+  <meta property="og:title" content="SMART NFTs — content you own that pays you as it spreads" />
+  <meta property="og:description" content="Publish content as a Smart NFT buyers truly own — self-replicating, with publisher and holder royalties enforced on-chain by BSV." />
+  <meta property="og:url" content="https://smartnfts.com/" />
+  <meta property="og:image" content="https://smartnfts.com/brand/og-banner.jpg" />
+  <meta property="og:image:width" content="1344" />
+  <meta property="og:image:height" content="768" />
+  <meta property="og:image:alt" content="SMART NFTs — content you own that pays you as it spreads" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="SMART NFTs — content you own that pays you as it spreads" />
+  <meta name="twitter:description" content="Publish content as a Smart NFT buyers truly own — self-replicating, with royalties enforced on-chain." />
+  <meta name="twitter:image" content="https://smartnfts.com/brand/og-banner.jpg" />
+  <style>
+    :root { --bg:#0e1116; --card:#171c24; --line:#2a3340; --fg:#e6edf3; --muted:#8b98a8; --accent:#3fb950; --accent2:#388bfd; --err:#f85149; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 24px 16px 64px; }
+    h1 { margin: 0 0 2px; font-size: 24px; letter-spacing: .5px; }
+    h1 small { color: var(--muted); font-weight: 400; font-size: 13px; display:block; letter-spacing: 0; }
+    h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 24px 0 8px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:12px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    label { display:block; font-size:12px; color:var(--muted); margin: 8px 0 3px; }
+    input { background:#0d1117; border:1px solid var(--line); color:var(--fg); border-radius:6px; padding:8px 10px; font:inherit; width:100%; }
+    input[type=file] { padding:6px; }
+    textarea { background:#0d1117; border:1px solid var(--line); color:var(--fg); border-radius:6px; padding:8px 10px; font:inherit; width:100%; min-height:64px; resize:vertical; }
+    .check { display:flex; align-items:center; gap:8px; margin:8px 0 3px; font-size:13px; color:var(--fg); }
+    .check input { width:auto; }
+    button { background:var(--accent); color:#04140a; border:0; border-radius:6px; padding:8px 14px; font:inherit; font-weight:600; cursor:pointer; }
+    button.secondary { background:#21262d; color:var(--fg); border:1px solid var(--line); }
+    button:hover { filter:brightness(1.08); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; word-break:break-all; color:var(--muted); }
+    .kv { margin:6px 0; }
+    .kv b { color:var(--muted); font-weight:500; font-size:12px; display:block; }
+    .muted { color:var(--muted); }
+    .status { position:sticky; top:0; background:#0d1117; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:14px; font-size:13px; min-height:20px; }
+    .status.ok { border-color:var(--accent); }
+    .status.error { border-color:var(--err); color:#ffb4ae; }
+    /* Click-to-copy id chip — shows a shortened id, copies the full value on click */
+    .copyid { cursor:pointer; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; border-bottom:1px dotted currentColor; white-space:nowrap; }
+    .copyid:hover { background:rgba(88,166,255,.15); border-radius:3px; }
+    .grid2 { display:grid; grid-template-columns:1fr 120px; gap:8px; }
+    /* Wallet section tabs */
+    .tabs { display:flex; gap:2px; flex-wrap:wrap; margin:0 0 16px; border-bottom:1px solid var(--line); }
+    .tab { background:transparent; color:var(--muted); border:0; border-bottom:2px solid transparent; border-radius:0;
+      padding:9px 15px; font-size:14px; font-weight:600; cursor:pointer; margin-bottom:-1px; }
+    .tab:hover { color:var(--fg); filter:none; }
+    .tab.is-active { color:var(--fg); border-bottom-color:var(--accent); }
+    .tabpanel { display:none; }
+    .tabpanel.is-active { display:block; animation:tabFade .22s ease both; }
+    @keyframes tabFade { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:none; } }
+    @media (prefers-reduced-motion:reduce) { .tabpanel.is-active { animation:none; } }
+    /* Home landing */
+    .home-hero { text-align:center; margin:6px 0 20px; }
+    .home-title { font-size:23px; line-height:1.2; margin:0 0 8px; letter-spacing:-.3px; text-transform:none; color:var(--fg); }
+    .home-tagline { color:var(--muted); margin:0 auto; max-width:48ch; line-height:1.5; }
+    .home-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media (max-width:560px) { .home-grid { grid-template-columns:1fr; } }
+    .home-card { display:flex; flex-direction:column; text-align:left; padding:0; background:var(--card);
+      color:var(--fg); border:1px solid var(--line); border-radius:14px; overflow:hidden; cursor:pointer; font:inherit;
+      transition:transform .12s ease, box-shadow .12s ease, border-color .12s ease; }
+    .home-card:hover { transform:translateY(-2px); filter:none; border-color:#3a4655; box-shadow:0 14px 34px -18px rgba(0,0,0,.8); }
+    .home-art { aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; font-size:52px;
+      background:linear-gradient(140deg, var(--g1,#21262d), var(--g2,#0d1117)); background-size:cover; background-position:center; }
+    .home-art-img { width:74px; height:74px; filter:drop-shadow(0 3px 9px rgba(0,0,0,.4)); }
+    .home-card-body { padding:12px 14px 15px; }
+    .home-card-body h3 { margin:0 0 4px; font-size:16px; color:var(--fg); text-transform:none; letter-spacing:0; }
+    .home-card-body p { margin:0; color:var(--muted); font-size:13px; line-height:1.45; }
+    .home-foot { text-align:center; margin:18px 0 0; font-size:13px; }
+    .linklike { background:none; border:0; color:var(--accent2); cursor:pointer; padding:0; font:inherit; text-decoration:underline; }
+    .linklike:hover { filter:none; }
+    /* Help panel */
+    .help h3 { font-size:15px; margin:18px 0 6px; color:var(--fg); text-transform:none; letter-spacing:0; }
+    .help h3:first-child { margin-top:0; }
+    .help h4 { font-size:14px; margin:16px 0 2px; color:var(--fg); }
+    .help .help-sub { margin:0 0 6px; color:var(--muted); font-size:12.5px; }
+    .help p { margin:0 0 10px; line-height:1.55; }
+    .help ol, .help ul { margin:0 0 12px; padding-left:20px; line-height:1.55; }
+    .help li { margin:5px 0; }
+    .help .kv { margin:10px 0; }
+    .help .kv b { color:var(--fg); font-size:13px; margin-bottom:2px; }
+    .token { border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:8px; background:#0d1117; display:flex; gap:12px; align-items:flex-start; }
+    .token-thumb { flex:0 0 64px; width:64px; height:64px; border-radius:6px; overflow:hidden; background:#161b22; border:1px solid var(--line); }
+    .token-thumb-img { width:100%; height:100%; object-fit:cover; display:block; }
+    .token-thumb-ph { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:30px; opacity:.5; }
+    .token-body { flex:1 1 auto; min-width:0; }
+    .token-name { font-weight:600; margin-bottom:4px; }
+    .msg { display:block; } /* message cards stack vertically (override the NFT flex-row) — actions align bottom-left */
+    .token-group { flex-direction:column; align-items:stretch; }
+    .token-group-head { display:flex; gap:12px; align-items:flex-start; cursor:pointer; }
+    .token-group-head .chev { margin-left:auto; align-self:center; color:var(--muted); font-size:14px; }
+    .token-name .count { color:var(--muted); font-weight:500; font-size:12px; margin-left:4px; }
+    .token-group-items { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
+    .token-group-items[hidden] { display:none; }
+    .token-copy { padding-top:8px; border-top:1px dashed var(--line); }
+    .token-copy:first-child { border-top:none; padding-top:0; }
+    .token-section { margin-bottom:10px; }
+    .token-section-head { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; padding:6px 2px;
+                          margin-bottom:8px; font-weight:600; font-size:13px; border-bottom:1px solid var(--line); }
+    .token-section-head .chev { color:var(--muted); font-size:12px; }
+    .token-section-head .count { color:var(--muted); font-weight:500; font-size:12px; margin-left:auto; }
+    .token-section-body[hidden] { display:none; }
+    .nft-toolbar { display:flex; justify-content:flex-end; gap:8px; margin-bottom:10px; }
+    .view-toggle { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+    .view-toggle button { background:transparent; border:none; color:var(--muted); padding:5px 12px; font-size:13px; cursor:pointer; }
+    .view-toggle button.active { background:var(--accent2); color:#04122a; font-weight:600; }
+    /* "by @publisher ✉ Message" row on an NFT card */
+    .token-publisher { display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px; margin:4px 0 2px; }
+    .token-publisher .identicon { vertical-align:middle; }
+    .link-btn { background:transparent; border:none; color:var(--accent2); padding:0; font-size:12px; cursor:pointer; text-decoration:underline; }
+    .link-btn:hover { filter:brightness(1.15); }
+    /* 👥 Buyers list modal */
+    .buyers-list { display:flex; flex-direction:column; gap:6px; max-height:50vh; overflow:auto; }
+    .buyer-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:7px 9px; border:1px solid var(--line); border-radius:8px; }
+    .buyer-row > .buyer-sel { flex:0 0 auto; margin:0; }
+    .buyer-who { display:flex; align-items:center; gap:6px; font-size:13px; flex:1 1 auto; min-width:0; word-break:break-all; flex-wrap:wrap; }
+    .sale-tag { font-size:12px; }
+    .gift-badge { color:#ff8c42; }
+    .buyer-row > button { flex:0 0 auto; font-size:12px; padding:4px 10px; }
+    .buyers-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 8px; }
+    .buyers-selall { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+    .compose-many { display:flex; flex-wrap:wrap; gap:6px 10px; max-height:96px; overflow:auto; }
+    .compose-hint code { background:var(--line); padding:0 4px; border-radius:4px; }
+    /* 💬 Threads (lineage discussions) */
+    .disc-room { display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:#161b22; color:var(--fg); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:8px; cursor:pointer; font-weight:400; }
+    .disc-room:hover { border-color:var(--accent2); }
+    .disc-room-name { font-weight:600; flex:1 1 auto; min-width:0; }
+    .disc-room-meta { color:var(--muted); font-size:12px; flex:0 0 auto; }
+    .disc-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+    .disc-head h3 { margin:0; flex:1 1 auto; min-width:0; }
+    .disc-compose { display:flex; flex-direction:column; gap:8px; border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:14px; }
+    .disc-compose textarea { width:100%; box-sizing:border-box; resize:vertical; }
+    .disc-compose-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .disc-feed { display:flex; flex-direction:column; gap:10px; }
+    .disc-post { border:1px solid var(--line); border-radius:10px; padding:9px 11px; }
+    .disc-post-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-bottom:5px; }
+    .disc-post-text { font-size:14px; white-space:pre-wrap; word-break:break-word; }
+    .disc-badge { font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--line); }
+    .disc-badge.root { color:#f0c674; border-color:#9e6a03; }
+    .disc-badge.self { color:var(--accent); border-color:var(--accent); }
+    .disc-badge.up { color:var(--accent2); border-color:var(--accent2); }
+    .disc-badge.down { color:#d2a8ff; border-color:#8957e5; }
+    .disc-badge.creator { color:#04140a; background:#f0c674; border-color:#f0c674; font-weight:600; }
+    .disc-badge.senior { color:var(--accent); border-color:var(--accent); }
+    .cfg-backup { border-top:1px solid var(--line); padding-top:12px; margin-bottom:12px; }
+    .app-version { text-align:center; font-size:11px; color:var(--muted); margin:18px 0 8px; }
+    .grid2[hidden] { display:none; } /* [hidden] alone loses to .grid2{display:grid}; this restores hiding */
+    #seedPhrase.blurred { filter:blur(6px); }
+    body.watch-only [data-needs-key] { display:none !important; }
+    .watch-banner { border:1px solid var(--accent); border-radius:10px; padding:10px 12px; margin-bottom:12px;
+      background:linear-gradient(180deg, rgba(88,166,255,.14), rgba(88,166,255,.05)); font-size:13px; line-height:1.5; }
+    .send-bsv { border-top:1px solid var(--line); margin-top:14px; padding-top:12px; }
+    /* 📷 QR scan button + camera modal */
+    .scan-row { display:flex; gap:6px; align-items:stretch; }
+    .scan-row > input { flex:1 1 auto; min-width:0; }
+    .scan-btn { flex:none; padding:0 12px; }
+    .qr-scan-video { width:100%; border-radius:10px; background:#000; aspect-ratio:1/1; object-fit:cover; }
+    /* Lead "Send BSV" block — the headline action at the top of the wallet. */
+    .send-bsv-lead { border:1px solid var(--accent); border-radius:12px; padding:12px 14px; margin:10px 0 16px;
+      background:linear-gradient(180deg, rgba(88,166,255,.10), rgba(88,166,255,.03)); }
+    .send-bsv-title { font-size:15px; font-weight:600; color:var(--fg); display:block; margin-bottom:6px; }
+    .adv-airgap { border-top:1px solid var(--line); padding-top:12px; }
+    .adv-airgap > summary { cursor:pointer; font-weight:600; color:var(--muted); }
+    .adv-airgap[open] > summary { color:var(--fg); }
+    .airgap-step { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:10px 0; }
+    .airgap-step .airgap-h { margin-bottom:6px; }
+    .airgap-step .airgap-h .muted { font-weight:400; font-size:12px; margin-left:6px; }
+    .airgap-radio { display:inline-flex; align-items:center; gap:5px; font-weight:400; }
+    .airgap-radio input { width:auto; }
+    .help-backup { border:1px solid #9e6a03; border-radius:10px; padding:12px 14px; margin:0 0 18px;
+      background:linear-gradient(180deg, rgba(158,106,3,.16), rgba(158,106,3,.05)); font-size:14px; line-height:1.5; }
+    .seed-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:8px; }
+    .seed-word { background:#161b22; border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:14px; }
+    .seed-word .seed-num { color:var(--muted); font-size:11px; margin-right:4px; }
+    /* 📊 Sales dashboard */
+    .sales-group { border:1px solid var(--line); border-radius:8px; margin:6px 0; overflow:hidden; }
+    .sales-group-head { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:#161b22; color:var(--fg); border:none; padding:9px 11px; cursor:pointer; font:inherit; }
+    .sales-group-head:hover { background:#1b212b; }
+    .sales-group-name { font-weight:600; flex:1 1 auto; min-width:0; }
+    .sales-group-meta { color:var(--muted); font-size:12px; flex:0 0 auto; }
+    .sales-group .buyers-list { padding:6px 10px 10px; }
+    .stat-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:10px; margin-bottom:12px; }
+    .stat-tile { border:1px solid var(--line); border-radius:10px; padding:11px 13px; background:#13181f; }
+    .stat-label { color:var(--muted); font-size:12px; }
+    .stat-val { font-size:22px; font-weight:700; margin:3px 0; }
+    .stat-val .stat-unit { font-size:13px; font-weight:500; color:var(--muted); }
+    .stat-sub { font-size:11px; }
+    .token-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:10px; }
+    .token-tile { display:flex; flex-direction:column; gap:6px; padding:8px; background:#0d1117; border:1px solid var(--line);
+                  border-radius:8px; cursor:pointer; text-align:left; color:var(--fg); font:inherit; }
+    .token-tile:hover { border-color:var(--accent2); }
+    .token-tile-thumb { width:100%; aspect-ratio:1/1; border-radius:6px; overflow:hidden; background:#161b22; }
+    .token-tile-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+    .token-tile-thumb .token-thumb-ph { font-size:40px; }
+    .token-tile-cap { display:flex; align-items:baseline; gap:6px; }
+    .token-tile-name { font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1 1 auto; min-width:0; }
+    .token-tile-cap .count { font-size:11px; color:var(--muted); flex:0 0 auto; }
+    #tokenModalBody .token { margin-bottom:0; }
+    .token-ids { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .copy-id { cursor:pointer; border-bottom:1px dotted var(--line); }
+    .copy-id:hover { color:var(--fg); border-bottom-color:var(--accent2); }
+    .identicon { vertical-align:middle; border-radius:4px; margin-right:5px; flex:0 0 auto; }
+    .avatar { object-fit:cover; box-sizing:border-box; }
+    .unverified { color:#e3b341; font-size:11px; cursor:help; }
+    .alias-save { font-size:11px; padding:1px 8px; vertical-align:baseline; }
+    .contact-row { display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; }
+    .contact-name { font-weight:600; }
+    .contact-acts { margin-left:auto; display:flex; gap:6px; flex:0 0 auto; }
+    .contact-acts button { font-size:11px; padding:2px 9px; }
+    #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(8px); background:#161b22;
+             border:1px solid var(--line); color:var(--fg); padding:8px 14px; border-radius:8px; font-size:13px;
+             opacity:0; pointer-events:none; transition:opacity .15s, transform .15s; z-index:100; }
+    #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+    .token .state { color:var(--accent); font-size:12px; margin-top:4px; }
+    .token .actions { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+    .token .actions button { padding:5px 12px; font-size:13px; }
+    .modal { position:fixed; inset:0; background:rgba(0,0,0,.72); display:flex; align-items:center; justify-content:center; padding:24px; z-index:10; }
+    .modal-box { background:var(--card); border:1px solid var(--line); border-radius:10px; max-width:92vw; max-height:92vh; overflow:auto; padding:16px; }
+    .modal-head { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:12px; font-size:12px; color:var(--muted); }
+    .crop-canvas { width:300px; max-width:78vw; aspect-ratio:1/1; height:auto; display:block; margin:0 auto; border-radius:10px; background:#0d1117; touch-action:none; cursor:grab; }
+    .crop-canvas.grabbing { cursor:grabbing; }
+    .cover-preview { display:flex; align-items:center; gap:8px; margin-top:6px; }
+    .cover-preview:empty { display:none; }
+    /* Combine-into-EP picker (reference mint) */
+    .combine-box { margin-top:10px; border:1px solid var(--line); border-radius:8px; padding:10px; }
+    .combine-list { list-style:none; margin:0 0 6px; padding:0; display:flex; flex-direction:column; gap:2px; max-height:200px; overflow:auto; }
+    .combine-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:3px 4px; border-radius:6px; }
+    .combine-row:hover { background:rgba(255,255,255,.04); }
+    .combine-row .check { margin:0; flex:1; min-width:0; }
+    .combine-row .check label, .combine-row label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cover-preview img { width:56px; height:56px; object-fit:cover; border-radius:8px; border:1px solid var(--line); }
+    .viewer-img { max-width:100%; max-height:74vh; border-radius:6px; display:block; }
+    .viewer-pre { white-space:pre-wrap; word-break:break-word; max-height:74vh; overflow:auto; background:#0d1117; padding:12px; border-radius:6px; font-size:12px; }
+    .viewer-dl { color:var(--accent2); }
+    /* ── Ethereal EP player (ported from MusicPlayer-test; scoped ep-, no external font/deps) ── */
+    .ep-stage { position:relative; width:100%; max-height:74vh; overflow:auto; border-radius:18px; padding:22px 14px;
+      background:linear-gradient(135deg,#0f0c29,#302b63,#24243e); display:flex; justify-content:center; }
+    .ep-orbs { position:absolute; inset:0; overflow:hidden; z-index:0; border-radius:18px; }
+    .ep-orb { position:absolute; border-radius:50%; filter:blur(80px); opacity:.5; transition:transform .1s ease-out, opacity .1s ease-out, filter .1s ease-out; }
+    .ep-orb:nth-child(1){ width:340px; height:340px; background:linear-gradient(45deg,#ff006e,#8338ec); top:-120px; left:-80px; }
+    .ep-orb:nth-child(2){ width:300px; height:300px; background:linear-gradient(45deg,#3a86ff,#00f5d4); bottom:-100px; right:-80px; }
+    .ep-orb:nth-child(3){ width:240px; height:240px; background:linear-gradient(45deg,#fb5607,#ffbe0b); top:50%; left:50%; transform:translate(-50%,-50%); }
+    .ep-player { position:relative; z-index:1; width:100%; max-width:380px; background:rgba(255,255,255,.03); backdrop-filter:blur(20px);
+      border-radius:24px; padding:22px; border:1px solid rgba(255,255,255,.1); box-shadow:0 25px 50px -12px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.1); }
+    .ep-disc-container { position:relative; width:180px; height:180px; margin:0 auto 20px; }
+    .ep-disc { width:100%; height:100%; border-radius:50%;
+      background:
+        radial-gradient(circle at 50% 50%, #111 0%, #111 15%, transparent 15.5%),
+        radial-gradient(circle at 50% 50%, #333 16%, #222 17%, #111 18%, #222 19%, #333 20%, transparent 20.5%),
+        repeating-radial-gradient(circle at 50% 50%, #1a1a1a 21%, #222 22%, #1a1a1a 23%),
+        conic-gradient(from 0deg, #2a2a2a, #1a1a1a, #2a2a2a, #1a1a1a, #2a2a2a);
+      box-shadow:0 0 0 8px #111, 0 0 30px rgba(0,0,0,.5), inset 0 0 30px rgba(0,0,0,.3);
+      animation:ep-spin 3s linear infinite; animation-play-state:paused; }
+    .ep-disc.playing { animation-play-state:running; }
+    .ep-disc::after { content:''; position:absolute; top:50%; left:50%; width:52px; height:52px; transform:translate(-50%,-50%);
+      border-radius:50%; background:linear-gradient(135deg,#8338ec,#ff006e); box-shadow:0 0 20px rgba(131,56,236,.5); }
+    @keyframes ep-spin { from{transform:rotate(0)} to{transform:rotate(360deg)} }
+    .ep-visualizer-container { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:252px; height:252px; pointer-events:none; }
+    .ep-visualizer { width:100%; height:100%; }
+    .ep-art { position:absolute; top:50%; left:50%; width:118px; height:118px; transform:translate(-50%,-50%);
+      border-radius:50%; object-fit:cover; box-shadow:0 0 0 4px #111, 0 6px 22px rgba(0,0,0,.55);
+      opacity:0; transition:opacity .4s ease; display:none; pointer-events:none; z-index:1; }
+    /* The disc label rotates with the record while playing (preserves the centring translate). Not in cover view. */
+    @keyframes ep-art-spin { from{transform:translate(-50%,-50%) rotate(0)} to{transform:translate(-50%,-50%) rotate(360deg)} }
+    .ep-player.playing:not(.art-view):not(.viz-speaker) .ep-art { animation:ep-art-spin 3s linear infinite; }
+    /* Speaker visualization: no spin; the disc pushes in/out with the bass (scale set per-frame in JS). */
+    .ep-player.viz-speaker .ep-disc { animation:none; }
+    .ep-viz-toggle { position:absolute; top:52px; right:10px; z-index:3; width:34px; height:34px; border-radius:50%;
+      border:1px solid rgba(255,255,255,.15); background:rgba(0,0,0,.35); color:#fff; font-size:15px; cursor:pointer;
+      display:flex; align-items:center; justify-content:center; backdrop-filter:blur(6px); line-height:1; }
+    .ep-viz-toggle:hover { background:rgba(0,0,0,.55); }
+    /* Spin/speaker only affects the disc — hide it in the cover + video views where the disc isn't shown. */
+    .ep-player.art-view .ep-viz-toggle, .ep-player.video-view .ep-viz-toggle { display:none; }
+    /* 🖼️/💿 toggle: flip between the player view and a full uncropped cover view (only shown when art exists) */
+    .ep-art-toggle { position:absolute; top:10px; right:10px; z-index:3; width:34px; height:34px; border-radius:50%;
+      border:1px solid rgba(255,255,255,.15); background:rgba(0,0,0,.35); color:#fff; font-size:15px; cursor:pointer;
+      display:none; align-items:center; justify-content:center; backdrop-filter:blur(6px); line-height:1; }
+    .ep-art-toggle:hover { background:rgba(0,0,0,.55); }
+    .ep-player.has-art .ep-art-toggle { display:flex; }
+    .ep-disc-container { transition:width .25s ease, height .25s ease; }
+    .ep-player.art-view .ep-disc, .ep-player.art-view .ep-visualizer-container { display:none; }
+    .ep-player.art-view .ep-disc-container { width:100%; max-width:300px; height:auto; aspect-ratio:1; }
+    .ep-player.art-view .ep-art { top:0; left:0; width:100%; height:100%; transform:none; border-radius:16px;
+      object-fit:contain; box-shadow:0 10px 30px rgba(0,0,0,.5); }
+    /* 📝 lyrics overlay: a scrim-backed text layer over the disc/cover (art shows through behind). Synced LRC
+       lyrics highlight + auto-scroll the active line; plain lyrics just scroll. Independent of the cover toggle. */
+    .ep-lyrics-toggle { position:absolute; top:10px; left:10px; z-index:4; width:34px; height:34px; border-radius:50%;
+      border:1px solid rgba(255,255,255,.15); background:rgba(0,0,0,.35); color:#fff; font-size:15px; cursor:pointer;
+      align-items:center; justify-content:center; backdrop-filter:blur(6px); line-height:1; display:none; }
+    .ep-lyrics-toggle:not([hidden]) { display:flex; }
+    .ep-lyrics-toggle:hover { background:rgba(0,0,0,.55); }
+    .ep-lyrics { position:absolute; inset:0; z-index:2; display:none; border-radius:16px; overflow:hidden;
+      background:radial-gradient(circle at 50% 38%, rgba(10,8,20,.5), rgba(8,6,16,.84)); }
+    .ep-player.lyrics-view .ep-lyrics { display:block; }
+    .ep-player.lyrics-view .ep-disc-container { width:100%; max-width:300px; height:auto; aspect-ratio:1; }
+    .ep-lyrics-scroll { position:absolute; inset:0; overflow-y:auto; scroll-behavior:smooth; padding:44% 18px; text-align:center;
+      scrollbar-width:thin; -webkit-mask-image:linear-gradient(transparent,#000 16%,#000 84%,transparent);
+      mask-image:linear-gradient(transparent,#000 16%,#000 84%,transparent); }
+    .ep-ly-line { margin:0 0 11px; font-size:14px; line-height:1.45; color:rgba(255,255,255,.5);
+      transition:color .25s ease, transform .25s ease, text-shadow .25s ease; }
+    .ep-ly-synced .ep-ly-line { color:rgba(255,255,255,.36); }
+    .ep-ly-line.active { color:#fff; font-weight:600; transform:scale(1.06); text-shadow:0 0 18px rgba(255,0,110,.55); }
+    /* 🎬 scene-timeline music video: the scene image fills the disc area and swaps by playback time. Lyrics can
+       overlay on top (karaoke video). The disc/visualizer/art hide while video view is on. */
+    .ep-video-toggle { position:absolute; top:52px; left:10px; z-index:4; width:34px; height:34px; border-radius:50%;
+      border:1px solid rgba(255,255,255,.15); background:rgba(0,0,0,.35); color:#fff; font-size:15px; cursor:pointer;
+      align-items:center; justify-content:center; backdrop-filter:blur(6px); line-height:1; display:none; }
+    .ep-video-toggle:not([hidden]) { display:flex; }
+    .ep-video-toggle:hover { background:rgba(0,0,0,.55); }
+    .ep-scene { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; border-radius:16px;
+      display:none; z-index:1; box-shadow:0 10px 30px rgba(0,0,0,.5); background:#000; }
+    .ep-player.video-view .ep-scene { display:block; }
+    .ep-player.video-view .ep-disc, .ep-player.video-view .ep-visualizer-container, .ep-player.video-view .ep-art { display:none; }
+    /* Video view adapts to the clip's own aspect ratio (--ep-vid-ar, read from the scene's natural size) and
+       grows to the largest box that fits the stage — square OR 16:9 — rather than the old fixed 300px 1:1
+       (a Cosmic Conspiracy legacy). The card widens to match so the video uses the available space. */
+    .ep-player.video-view { --ep-vh:min(58vh,480px); max-width:min(92vw, calc(var(--ep-vh) * var(--ep-vid-ar,1) + 44px)); }
+    .ep-player.video-view .ep-disc-container { width:100%; max-width:100%; height:auto; aspect-ratio:var(--ep-vid-ar,1); max-height:var(--ep-vh); }
+    .ep-song-list { list-style:none; max-height:160px; overflow-y:auto; margin:0 0 14px; padding:0; scrollbar-width:thin; }
+    .ep-song-list li { padding:10px 14px; margin-bottom:6px; background:rgba(255,255,255,.05); border-radius:14px; cursor:pointer;
+      transition:all .25s; color:rgba(255,255,255,.7); border:1px solid transparent; font-size:14px; word-break:break-word; }
+    .ep-song-list li:hover { background:rgba(255,255,255,.1); transform:translateX(4px); color:#fff; }
+    .ep-song-list li.active { background:linear-gradient(135deg,rgba(131,56,236,.3),rgba(255,0,110,.3)); border-color:rgba(255,0,110,.3);
+      color:#fff; font-weight:600; box-shadow:0 0 30px rgba(255,0,110,.2); }
+    .ep-now-playing { text-align:center; color:rgba(255,255,255,.6); margin-bottom:12px; font-size:13px; min-height:1.4em; letter-spacing:1px; }
+    .ep-now-playing span { background:linear-gradient(90deg,#ff006e,#8338ec,#3a86ff); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; font-weight:600; }
+    .ep-progress-container { width:100%; height:6px; background:rgba(255,255,255,.1); border-radius:3px; margin-bottom:10px; cursor:pointer; overflow:hidden; }
+    .ep-progress-bar { height:100%; background:linear-gradient(90deg,#ff006e,#8338ec); border-radius:3px; width:0%; transition:width .1s linear; }
+    .ep-time-display { display:flex; justify-content:space-between; font-size:11px; color:rgba(255,255,255,.4); margin-bottom:16px; }
+    .ep-controls { display:flex; justify-content:center; align-items:center; gap:20px; }
+    .ep-control-btn { background:none; border:none; cursor:pointer; padding:8px; border-radius:50%; display:flex; align-items:center; justify-content:center; transition:all .25s; }
+    .ep-control-btn svg { width:24px; height:24px; fill:rgba(255,255,255,.7); transition:all .25s; }
+    .ep-control-btn:hover svg { fill:#fff; filter:drop-shadow(0 0 10px rgba(255,255,255,.5)); }
+    .ep-play-btn { width:60px; height:60px; background:linear-gradient(135deg,#ff006e,#8338ec); box-shadow:0 0 30px rgba(255,0,110,.4); }
+    .ep-play-btn:hover { transform:scale(1.08); box-shadow:0 0 40px rgba(255,0,110,.6); }
+    .ep-play-btn svg { width:26px; height:26px; fill:#fff; }
+    .ep-volume-container { display:flex; align-items:center; justify-content:center; gap:10px; margin-top:16px; }
+    .ep-volume-container svg { width:18px; height:18px; fill:rgba(255,255,255,.5); }
+    .ep-volume-slider { -webkit-appearance:none; appearance:none; width:100px; height:4px; background:rgba(255,255,255,.1); border-radius:2px; outline:none; }
+    .ep-volume-slider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:14px; height:14px; background:linear-gradient(135deg,#ff006e,#8338ec); border-radius:50%; cursor:pointer; box-shadow:0 0 10px rgba(255,0,110,.5); }
+    .ep-downloads { margin-top:12px; display:flex; flex-direction:column; gap:6px; }
+    .ep-dl-label { font-size:12px; color:rgba(255,255,255,.5); margin-bottom:2px; }
+    .viewer-banner { padding:9px 12px; margin-bottom:12px; border-radius:6px; font-size:13px; font-weight:600; border:1px solid var(--line); }
+    .viewer-banner.ok { border-color:var(--accent); color:var(--accent); background:rgba(46,160,67,0.10); }
+    .viewer-banner.error { border-color:var(--err); color:#ffb4ae; background:rgba(248,81,73,0.10); }
+    .badge { font-size:10px; text-transform:uppercase; letter-spacing:.5px; background:var(--accent2); color:#04122a; padding:1px 6px; border-radius:10px; vertical-align:middle; }
+    .warn { border-color:#9e6a03; }
+    .warn h2 { color:#e3a008; }
+    .seed-warn { display:block; color:#eab300; font-weight:700; font-size:13px; margin:8px 0 5px; padding:6px 10px; border:1px solid #9e6a03; border-left:3px solid #eab300; border-radius:6px; background:rgba(234,179,3,0.08); }
+    .foot { text-align:center; color:var(--muted); font-size:12px; margin:28px 0 8px; }
+    .foot a { color:var(--accent2); }
+    .woc-badge { height:56px; width:auto; opacity:.9; }
+    .woc-badge:hover { opacity:1; }
+    .bb-badge { display:flex; align-items:center; justify-content:center; gap:9px; margin-top:10px; font-size:13px; color:var(--muted); font-weight:600; text-decoration:none; }
+    .bb-badge .bb-logo { height:40px; width:auto; border-radius:6px; }
+    .bb-badge .bb-word { color:#ffce1f; font-weight:800; letter-spacing:-.2px; font-size:16px; }
+    .bb-badge:hover .bb-word { text-decoration:underline; }
+    /* BSV branding */
+    .bsv-coin { width:18px; height:18px; vertical-align:-4px; flex:none; }
+    .bsv-tag { display:inline-block; background:#eab300; color:#1a1206; font-size:10px; font-weight:800; letter-spacing:.5px; padding:1px 7px; border-radius:999px; vertical-align:middle; margin-left:7px; }
+    .bsv-built { display:flex; align-items:center; justify-content:center; gap:7px; color:var(--muted); font-size:12px; margin-bottom:12px; }
+    .bsv-built b { color:#eab300; font-weight:700; }
+    .wallet-warn { margin:10px 0 0; padding:9px 12px; border:1px solid #9e6a03; border-left:3px solid #eab300;
+      border-radius:8px; background:rgba(234,179,0,.06); font-size:12px; line-height:1.5; color:var(--fg); }
+    /* QR codes */
+    .qr-holder { background:#fff; border-radius:10px; padding:12px; display:inline-block; line-height:0; }
+    .qr-holder svg { width:100%; height:auto; display:block; }
+    .qr-modal-box { max-width:320px; text-align:center; }
+    .qr-modal-box .qr-holder { width:248px; max-width:74vw; }
+    .qr-cap { margin-top:10px; font-size:11px; word-break:break-all; color:var(--muted); }
+    .qr-fund { width:160px; margin-top:8px; }
+    /* Gift links modal */
+    .gift-modal-box { max-width:580px; width:92vw; }
+    /* ✉ compose overlay (message someone without leaving My NFTs) */
+    .compose-box { max-width:460px; width:92vw; }
+    .compose-to { margin-bottom:10px; font-size:13px; }
+    .compose-text { width:100%; box-sizing:border-box; resize:vertical; }
+    .compose-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; font-size:13px; }
+    .compose-row input[type=file] { font-size:12px; }
+    .gift-list { max-height:48vh; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+    .gift-row { display:flex; gap:8px; align-items:center; padding:6px 8px; border-bottom:1px solid var(--line); }
+    .gift-row:last-child { border-bottom:0; }
+    .gift-link { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; }
+    .gift-qr { padding:4px 11px; font-size:12px; flex:none; }
+    /* ─── Collection / sales view (shareable link landing) — premium storefront ─── */
+    .cview { position:fixed; inset:0; background:
+        radial-gradient(1200px 600px at 50% -10%, #16202c 0%, rgba(22,32,44,0) 60%),
+        var(--bg);
+      overflow:auto; z-index:5; display:flex; justify-content:center; padding:0 16px 56px; }
+    .cv-ambient { position:fixed; inset:0; pointer-events:none; z-index:-1;
+      background:radial-gradient(560px 380px at 50% 8%, rgba(63,185,80,.10), rgba(56,139,253,.06) 45%, transparent 72%); }
+    .cview-box { max-width:540px; width:100%; padding-top:18px;
+      animation:cvRise .5s cubic-bezier(.22,.61,.36,1) both; }
+    @keyframes cvRise { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+    @media (prefers-reduced-motion:reduce) { .cview-box { animation:none; } }
+
+    .cv-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; }
+    .cv-brand { font-weight:700; letter-spacing:1.5px; font-size:13px; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; gap:7px; }
+    .cv-brand-mark { color:var(--accent); filter:drop-shadow(0 0 6px rgba(63,185,80,.5)); }
+    .cv-ghost { background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:7px 14px; font-size:13px; font-weight:500; }
+    .cv-ghost:hover { color:var(--fg); border-color:#3a4655; filter:none; }
+
+    .cv-hero { margin:0 0 20px; }
+    .cv-cover { position:relative; border-radius:18px; overflow:hidden; background:linear-gradient(160deg,#1b222c,#10151c);
+      border:1px solid var(--line); box-shadow:0 24px 60px -24px rgba(0,0,0,.8), 0 2px 0 0 rgba(255,255,255,.03) inset; aspect-ratio:1/1; }
+    .cv-cover-img { width:100%; height:100%; object-fit:contain; display:block; }
+    .cv-flip { position:absolute; top:10px; right:10px; z-index:2; border:1px solid rgba(255,255,255,.2);
+      background:rgba(0,0,0,.55); color:#fff; font-size:13px; border-radius:999px; padding:6px 12px; cursor:pointer; backdrop-filter:blur(6px); }
+    .cv-flip:hover { background:rgba(0,0,0,.75); }
+    .cv-preview { margin:12px 0 0; text-align:center; }
+    .cv-preview audio { width:100%; max-width:380px; margin-top:6px; vertical-align:middle; }
+    .cv-cover-ph { height:100%; display:flex; align-items:center; justify-content:center; font-size:96px;
+      background:radial-gradient(420px 420px at 50% 35%, rgba(56,139,253,.18), transparent 70%); filter:saturate(.9); }
+
+    .cv-head { margin-bottom:14px; }
+    .cv-title { font-size:30px; line-height:1.15; margin:0 0 10px; letter-spacing:-.3px; font-weight:750; }
+    .cv-badges { margin-bottom:10px; display:flex; gap:6px; flex-wrap:wrap; }
+    .cview .badge { font-size:10.5px; padding:3px 9px; border-radius:999px; font-weight:600; }
+    .cv-publisher { margin:0; font-size:12px; }
+
+    .cv-desc { white-space:pre-wrap; color:var(--fg); line-height:1.6; background:rgba(255,255,255,.02);
+      border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin:0 0 14px; }
+
+    .cv-note { margin:12px 0; padding:12px 14px; border:1px solid #24405f; border-left:3px solid var(--accent2);
+      background:linear-gradient(90deg, rgba(56,139,253,.08), rgba(56,139,253,.02)); border-radius:10px; font-size:14px; line-height:1.55; white-space:pre-wrap; }
+    .cv-note .cv-note-tags { color:var(--muted); font-size:12px; }
+    .cv-bonus { margin:12px 0; padding:12px 14px; border:1px solid rgba(63,185,80,.45); border-radius:10px;
+      background:linear-gradient(90deg, rgba(63,185,80,.10), rgba(63,185,80,.02)); font-size:14px; line-height:1.55; }
+    .bonus-claim { display:inline-block; color:var(--accent); font-weight:700; }
+    .cv-noteedit { margin:14px 0; }
+    .cv-noteedit textarea { min-height:54px; }
+    .cv-noteedit select { background:#0d1117; border:1px solid var(--line); color:var(--fg); border-radius:6px; padding:8px 10px; font:inherit; width:100%; }
+
+    /* Top hero CTA — a duplicate of the buy button, kept above the fold */
+    .cv-buy-top { margin:0 0 16px; }
+    .cv-buy-top .cv-cta { width:100%; padding:14px 20px; font-size:16px; }
+
+    /* Buy card — the conversion surface */
+    .cv-buy { margin:18px 0 0; padding:18px; border-radius:16px;
+      background:linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
+      border:1px solid var(--line); box-shadow:0 12px 36px -20px rgba(0,0,0,.7); }
+    .cv-price { margin:0 0 14px; font-size:15px; color:var(--muted); }
+    .cv-price b { color:var(--fg); font-size:26px; font-weight:750; letter-spacing:-.3px; }
+    .cv-actions { display:flex; gap:10px; flex-wrap:wrap; }
+    .cv-actions button { padding:13px 20px; font-size:15px; border-radius:10px; }
+    .cv-cta { flex:1 1 auto; min-width:160px;
+      background:linear-gradient(180deg,#46c95a,#2ea043); color:#04140a; font-weight:700;
+      box-shadow:0 8px 24px -8px rgba(63,185,80,.6); transition:transform .12s ease, box-shadow .12s ease, filter .12s ease; }
+    .cv-cta:hover { transform:translateY(-1px); box-shadow:0 12px 30px -8px rgba(63,185,80,.75); }
+    .cv-cta:active { transform:translateY(0); }
+    .cv-cta:disabled { filter:grayscale(.4) brightness(.8); transform:none; box-shadow:none; cursor:default; }
+    /* "Owned" buy button — a calm success state (not the greyed disabled look) once you hold a copy. */
+    .cv-cta.owned:disabled { filter:none; background:linear-gradient(180deg,#1f6f33,#1a5a2a); color:#bdf0c6; box-shadow:none; cursor:default; }
+    .cv-another { color:var(--muted); font-size:13px; text-decoration:underline; cursor:pointer; align-self:center;
+      background:none; border:none; padding:6px 4px; }
+    .cv-another:hover { color:var(--fg); }
+    .cv-status { margin-top:12px; color:var(--muted); font-size:13px; min-height:18px; }
+    .cv-status.ok { color:var(--accent); }
+    .cv-status.error { color:#ffb4ae; }
+
+    .cv-fund { margin-top:14px; padding:16px; border:1px solid #9e6a03; border-radius:12px;
+      background:linear-gradient(180deg, rgba(158,106,3,.14), rgba(158,106,3,.05)); font-size:14px; line-height:1.5; }
+    .cv-fund .mono { color:var(--fg); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SMART NFTs <small>powered by <span title="Peer-to-peer · Hashing · Algorithm · Replication · Ledger · Authentication · Protocol">PHAR LAP</span></small></h1>
+
+    <div id="status" class="status">Loading…</div>
+
+    <nav class="tabs" role="tablist" aria-label="Wallet sections">
+      <button class="tab is-active" data-tab="home" role="tab">Home</button>
+      <button class="tab" data-tab="wallet" role="tab">Wallet</button>
+      <!-- Plain-token "Mint" tab hidden for the first-time-user UI (Editions is the single mint path).
+           The #tab-mint panel below is kept in the DOM so btnMint wiring stays intact — re-add this
+           button to surface it again. -->
+      <button class="tab" data-tab="editions" role="tab" data-needs-key>Publish</button>
+      <button class="tab" data-tab="tokens" role="tab">My NFTs</button>
+      <button class="tab" data-tab="sales" role="tab">Sales</button>
+      <button class="tab" data-tab="discussions" role="tab">Threads</button>
+      <button class="tab" data-tab="messages" role="tab" data-needs-key>DMs</button>
+      <button class="tab" data-tab="updates" role="tab">Updates</button>
+      <button class="tab" data-tab="help" role="tab">Help</button>
+    </nav>
+
+    <section class="tabpanel is-active" id="tab-home" role="tabpanel">
+      <div class="home-hero">
+        <h2 class="home-title">Publish Now! Get Paid on Every Sale and Resale!</h2>
+        <p class="home-tagline">One click sales. Get paid instantly!</p>
+      </div>
+      <!-- Placeholder art: each .home-art is a gradient + emoji for now. To use fal.ai images later,
+           drop files in brand/home/ and set e.g. style="background-image:url(brand/home/wallet.webp)"
+           on the .home-art (background-size:cover is already applied) — or swap in an <img>. -->
+      <div class="home-grid">
+        <button class="home-card" data-goto="wallet">
+          <div class="home-art" style="background-image:url(./brand/home/wallet.jpg)"></div>
+          <div class="home-card-body"><h3>Wallet</h3><p>Your keys &amp; balance. Back up once, restore anywhere.</p></div>
+        </button>
+        <button class="home-card" data-goto="editions">
+          <div class="home-art" style="background-image:url(./brand/home/publish.jpg)"></div>
+          <div class="home-card-body"><h3>Publish</h3><p>Turn your content into editions anyone can buy.</p></div>
+        </button>
+        <button class="home-card" data-goto="tokens">
+          <div class="home-art" style="background-image:url(./brand/home/nfts.jpg)"></div>
+          <div class="home-card-body"><h3>My NFTs</h3><p>Your collection — share a sales page, transfer, or view.</p></div>
+        </button>
+        <button class="home-card" data-goto="sales">
+          <div class="home-art" style="background-image:url(./brand/home/sales.jpg)"></div>
+          <div class="home-card-body"><h3>Sales</h3><p>Your sales stats, buyers &amp; earnings — as creator and reseller.</p></div>
+        </button>
+        <button class="home-card" data-goto="discussions">
+          <div class="home-art" style="background-image:url(./brand/home/threads.jpg)"></div>
+          <div class="home-card-body"><h3>Threads</h3><p>Members-only chat along each collection’s lineage.</p></div>
+        </button>
+        <button class="home-card" data-goto="messages">
+          <div class="home-art" style="background-image:url(./brand/home/messages.jpg)"></div>
+          <div class="home-card-body"><h3>DMs</h3><p>Send encrypted notes or files, on-chain.</p></div>
+        </button>
+      </div>
+      <p class="home-foot muted">New here? Open <button class="linklike" data-goto="help">Help</button> for a step-by-step guide.</p>
+    </section>
+
+    <section class="tabpanel" id="tab-wallet" role="tabpanel">
+    <div class="card">
+      <div id="watchBanner" class="watch-banner" hidden>
+        👁 <b>Watch-only wallet</b> — this device holds no private key. You can view holdings, export unsigned
+        requests, and broadcast signed transactions. Signing happens on your offline machine.
+        <button id="btnWatchExit" class="secondary" style="margin-top:8px">Exit watch-only (new local wallet)</button>
+      </div>
+      <!-- Balance + Send BSV lead the wallet — the everyday action is the first thing you see. -->
+      <div class="kv balance-kv"><b>Balance <span class="muted" style="font-weight:400">(BSV)</span></b>
+        <div class="row" style="align-items:center;gap:8px;margin-top:2px">
+          <span id="balance" class="mono" style="flex:1;min-width:0">—</span>
+          <button id="btnBuyBsv">💵 Buy BSV</button>
+          <button id="btnRefresh" class="secondary">↻ Refresh</button>
+        </div>
+      </div>
+
+      <div class="send-bsv send-bsv-lead">
+        <label class="send-bsv-title">⚡ Send BSV</label>
+        <input id="sendBsvAddr" placeholder="recipient BSV address (1…)" autocomplete="off" data-scan="addr" />
+        <div class="row" style="margin-top:6px; align-items:center; gap:10px">
+          <input id="sendBsvAmount" type="number" min="1" step="1" placeholder="amount (sats)" style="flex:1 1 auto; min-width:0" />
+          <label class="airgap-radio"><input type="checkbox" id="sendBsvMax"> Send max</label>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="btnSendBsv" data-needs-key>Send</button>
+          <button id="btnSendBsvExport" class="secondary" title="Export an unsigned request to sign on your offline machine">Export for offline signing →</button>
+        </div>
+        <p class="muted" style="font-size:12px;margin:6px 0 0">A plain BSV payment to any address. Change returns to this wallet. To sign offline, <b>Export</b> here, then use steps 2–3 in <b>Advanced</b> below.</p>
+      </div>
+
+      <div class="kv"><b>Receive address <span class="bsv-tag">BSV ONLY</span></b>
+        <div class="row" style="flex-wrap:nowrap;align-items:center;gap:6px;margin-top:2px">
+          <span id="address" class="mono" style="flex:1;min-width:0"></span>
+          <button id="btnCopyAddr" class="secondary">Copy</button>
+          <button id="btnQrAddr" class="secondary">QR</button>
+        </div>
+      </div>
+      <div class="kv"><b>Public key (give this to senders)</b>
+        <div class="row" style="flex-wrap:nowrap;align-items:center;gap:6px;margin-top:2px">
+          <span id="pubkey" class="mono" style="flex:1;min-width:0"></span>
+          <button id="btnCopyPub" class="secondary">Copy</button>
+          <button id="btnQrPub" class="secondary">QR</button>
+        </div>
+      </div>
+      <p class="wallet-warn">⚠️ Send only <b>Bitcoin SV (BSV)</b> to your address above. BTC, BCH and other coins share this address format but live on a <b>different blockchain</b> — they will not arrive in this wallet.</p>
+      <div class="row" style="margin-top:8px">
+        <button id="btnNewWallet" class="secondary">New wallet</button>
+      </div>
+
+      <div data-needs-key>
+      <label class="seed-warn">⚠️ Seed phrase — your backup. Write the words down and keep them secret.</label>
+      <div class="row" style="flex-wrap:nowrap; align-items:stretch">
+        <textarea id="seedPhrase" readonly rows="2" autocomplete="off" class="blurred" placeholder="(this wallet was imported from a WIF — it has no seed phrase; back up the WIF below)" style="flex:1 1 auto; min-width:0; resize:none"></textarea>
+        <button id="btnSeedShow" class="secondary" style="white-space:nowrap">👁 Reveal</button>
+        <button id="btnSeedCopy" class="secondary">Copy</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Anyone with these 12 words controls this wallet. They restore everything on any device.</p>
+
+      <label style="margin-top:12px">WIF (advanced — the raw private key; equivalent to the phrase)</label>
+      <div class="row" style="flex-wrap:nowrap; align-items:stretch">
+        <input id="wif" type="password" readonly autocomplete="off" style="flex:1 1 auto; width:auto; min-width:0" />
+        <button id="btnWifShow" class="secondary" style="white-space:nowrap">👁 Show</button>
+        <button id="btnWifCopy" class="secondary">Copy</button>
+      </div>
+      </div>
+
+      <label style="margin-top:12px">Restore from seed phrase</label>
+      <div class="grid2">
+        <input id="restoreSeed" placeholder="your 12 words, separated by spaces" />
+        <button id="btnRestoreSeed" class="secondary">Restore</button>
+      </div>
+      <label style="margin-top:8px">Restore from WIF</label>
+      <div class="grid2">
+        <input id="restoreWif" placeholder="L… / K… WIF" />
+        <button id="btnRestore" class="secondary">Restore</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Restoring rebuilds your wallet <b>and recovers your purchases from chain</b> — works on any browser or device.</p>
+
+      <label style="margin-top:12px">👁 Watch a wallet (public key only — keyless)</label>
+      <div class="grid2">
+        <input id="watchPubKey" placeholder="33-/65-byte hex public key from your offline wallet" autocomplete="off" data-scan="pubkey" />
+        <button id="btnWatchLoad" class="secondary">Watch</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Loads holdings + balance by public key with <b>no private key on this device</b>. Use it as the online half of an air-gapped setup: view, export unsigned requests, and broadcast — signing stays on your offline machine.</p>
+
+      <details class="adv-airgap" style="margin-top:16px">
+        <summary>💰 Earn referrals — your Buy BSV link</summary>
+        <p class="muted" style="font-size:12px;margin:8px 0 10px">
+          Paste your <b>SimpleSwap</b> referral link (or ref-code). When someone opens a sales page you
+          <b>shared</b> and taps <b>💵 Buy BSV</b>, they get BSV via SimpleSwap under your code and you earn the
+          commission (its two-tier even pays you on referrers you bring in). Leave blank to use the app default.
+          Your code rides on every link you share.
+        </p>
+        <div class="grid2">
+          <input id="affRefCode" placeholder="SimpleSwap referral link or ref-code" autocomplete="off" />
+          <button id="btnSaveAff" class="secondary">Save</button>
+        </div>
+      </details>
+
+      <details id="advAirgap" class="adv-airgap" style="margin-top:16px">
+        <summary>⚙ Advanced — air-gapped signing</summary>
+        <p class="muted" style="font-size:12px;margin:8px 0 12px">
+          Sign edition transfers/burns on a permanently-offline machine. The <b>online</b> box exports an
+          unsigned request, the <b>offline</b> box (which holds your key) signs it, and the online box
+          broadcasts the signed transaction. Only files cross the gap — your seed phrase never does. See the
+          air-gap guide in <code>docs/AIR_GAPPED.md</code>.
+        </p>
+
+        <div class="airgap-step">
+          <div class="airgap-h"><b>1 · Export an unsigned request</b> <span class="muted">online box</span></div>
+          <label>Edition to spend</label>
+          <select id="agEdition"></select>
+          <label>Action</label>
+          <div class="row" style="gap:14px">
+            <label class="airgap-radio"><input type="radio" name="agAction" value="transfer" checked> Transfer</label>
+            <label class="airgap-radio"><input type="radio" name="agAction" value="burn"> Burn</label>
+          </div>
+          <div id="agRecipientRow">
+            <label>Recipient public key (transfer only)</label>
+            <input id="agRecipient" placeholder="33- or 65-byte hex public key" autocomplete="off" />
+          </div>
+          <div class="row" style="margin-top:8px"><button id="btnAgExport" class="secondary">Export request →</button></div>
+        </div>
+
+        <div class="airgap-step" data-needs-key>
+          <div class="airgap-h"><b>2 · Sign offline</b> <span class="muted">offline box — holds your key</span></div>
+          <label>Import request file</label>
+          <input id="agSignFile" type="file" accept=".json,application/json" />
+          <div id="agSignSummary" class="muted" style="font-size:12px;margin:6px 0 0"></div>
+          <div class="row" style="margin-top:8px"><button id="btnAgSign" class="secondary" disabled>Sign &amp; export signed tx →</button></div>
+        </div>
+
+        <div class="airgap-step">
+          <div class="airgap-h"><b>3 · Broadcast signed</b> <span class="muted">online box</span></div>
+          <label>Import signed-tx file…</label>
+          <input id="agBcFile" type="file" accept=".txt,.hex,text/plain" />
+          <label style="margin-top:8px">…or paste the signed raw-tx hex</label>
+          <textarea id="agBcHex" rows="2" autocomplete="off" placeholder="0100000001…" style="width:100%;resize:vertical"></textarea>
+          <div class="row" style="margin-top:8px"><button id="btnAgBroadcast" class="secondary">Broadcast →</button></div>
+        </div>
+      </details>
+
+      <details id="advCosign" class="adv-airgap" style="margin-top:16px">
+        <summary>✍ Co-sign a transaction somebody else built</summary>
+        <p class="muted" style="font-size:12px;margin:8px 0 12px">
+          Some transactions are assembled elsewhere and left with a blank where your signature goes — funding a
+          covenant, splitting a bill, any arrangement where more than one wallet has to agree. Paste it here and
+          this wallet will work out <b>exactly what signing it would cost you</b>, from the transaction's own
+          bytes rather than from anybody's description of it, then sign only the inputs that are yours and leave
+          the rest untouched.
+        </p>
+        <label>Paste the unsigned transaction hex</label>
+        <textarea id="csHex" rows="3" autocomplete="off" spellcheck="false" placeholder="0100000002…" style="width:100%;resize:vertical"></textarea>
+        <label style="margin-top:8px">…or import it from a file</label>
+        <input id="csFile" type="file" accept=".txt,.hex,text/plain" />
+        <div class="row" style="margin-top:8px"><button id="btnCsRead" class="secondary">Read it →</button></div>
+        <div id="csReport" style="font-size:12px;margin:10px 0 0"></div>
+        <div class="row" style="margin-top:8px" data-needs-key>
+          <button id="btnCsSign" class="secondary" disabled>Sign my inputs →</button>
+          <button id="btnCsBroadcast" class="secondary" disabled>Broadcast →</button>
+        </div>
+      </details>
+    </div>
+    </section>
+
+    <section class="tabpanel" id="tab-mint" role="tabpanel">
+    <div class="card">
+      <label>Collection name</label>
+      <input id="mintName" placeholder="e.g. My Tokenized Content" />
+      <label>Editions to mint</label>
+      <input id="mintCount" type="number" min="1" value="1" />
+      <label>Embed a file (optional)</label>
+      <input id="mintFile" type="file" multiple />
+      <div class="row" style="margin-top:10px"><button id="btnMint">Mint collection</button></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Creates TX1 (template, the Collection ID) then TX2 (genesis editions). Requires funds on your address.</p>
+    </div>
+    </section>
+
+    <section class="tabpanel" id="tab-editions" role="tabpanel">
+    <div class="card">
+      <p class="muted" style="font-size:12px;margin:0 0 8px">
+        Publish content people can buy their own copy of. Every copy automatically pays you a publisher fee and pays the seller a royalty — enforced on-chain, with no marketplace in the middle. Fill in the details below to mint your collection.
+      </p>
+      <label>Type</label>
+      <div class="view-toggle" id="tierToggle" style="margin-bottom:6px">
+        <button id="btnTierUnlimited" type="button" class="active">Unlimited</button>
+        <button id="btnTierLimited" type="button">Limited</button>
+        <button id="btnTierExclusive" type="button">Exclusive</button>
+      </div>
+      <p id="tierHint" class="muted" style="font-size:12px;margin:0 0 10px">Unlimited: a covenant edition anyone can replicate — every copy pays you + the reseller on-chain, no marketplace needed.</p>
+      <label>Edition collection name</label>
+      <input id="edName" placeholder="e.g. My eBook (unlimited editions)" />
+      <label>Description (shown on the sales page — public, immutable)</label>
+      <textarea id="edDescription" placeholder="What is this? What do holders get? (a short blurb buyers see before purchase)"></textarea>
+      <label>Cover image (optional — public storefront art, shown even if the content is encrypted)</label>
+      <input id="edCover" type="file" accept="image/*" />
+      <button id="edCoverCam" type="button" class="secondary" style="margin-top:6px">📷 Take photo</button>
+      <div id="edCoverPreview" class="cover-preview"></div>
+      <label>Back cover image (optional — buyers can flip to it on the sales page)</label>
+      <input id="edBackCover" type="file" accept="image/*" />
+      <small class="muted" style="display:block;margin:3px 0 0;font-size:12px">A second storefront image (front + back). Separate from the audio's embedded art — this is the art that sells the NFT.</small>
+      <div class="covenant-only">
+        <label>Bond per edition (sats) — refundable, reclaimed by burning a copy</label>
+        <input id="edBond" type="number" min="1" value="1" />
+        <p class="muted" style="font-size:12px;margin:2px 0 0">Each edition rides on this many sats; the owner reclaims them by burning. Higher = stronger price floor (and pricier gifts); set low (e.g. 1) for free-content drops.</p>
+      </div>
+      <!-- Pricing is always v1 fixed-fee on-chain. "Percentage" is a UI calculator: enter a price + publisher
+           share and we compute the fixed publisher/holder fees that get minted. (Covenant v2 ranged pricing
+           stays in the codebase + tests, hidden, for a future build.) -->
+      <div class="covenant-only">
+        <label>Pricing</label>
+        <div class="view-toggle" style="margin-bottom:8px">
+          <button id="btnFeeFixed" type="button" class="active">Fixed fees</button>
+          <button id="btnFeePct" type="button">Percentage</button>
+        </div>
+        <div id="feeFixed" class="grid2" style="grid-template-columns:1fr 1fr">
+          <div><label>Publisher fee (sats)</label><input id="edPublisherFee" type="number" min="1" value="1" /></div>
+          <div><label>Holder fee (sats)</label><input id="edHolderFee" type="number" min="1" value="1" /></div>
+        </div>
+        <div id="feePct" hidden>
+          <div class="grid2" style="grid-template-columns:1fr 1fr">
+            <div><label>Final price a buyer pays (sats, incl. bond)</label><input id="edPrice" type="number" min="3" value="8000" /></div>
+            <div><label>Reseller's net share (%)</label><input id="edResellerPct" type="number" min="0" max="100" value="20" /></div>
+          </div>
+          <p id="edPctPreview" class="muted" style="font-size:12px;margin:4px 0 0"></p>
+          <p class="muted" style="font-size:11px;margin:2px 0 0">A convenience: from the final price minus the bond, the <b>reseller (holder)</b> keeps the share you set and the <b>publisher</b> keeps the rest — minted as the <b>fixed</b> publisher + holder fees. (The bond is the buyer's own refundable deposit, not part of the split.)</p>
+        </div>
+      </div>
+      <label id="edCountLabel">Editions to mint now</label>
+      <input id="edCount" type="number" min="1" value="1" />
+      <label>Embed a file (optional — viewable by holders)</label>
+      <input id="edFile" type="file" multiple />
+      <small class="muted" style="display:block;margin:3px 0 0;font-size:12px">Pick several files to publish a multi-track <b>album/EP</b> as one NFT — they play inline in the viewer. Number them 01…, 02… to set the track order.</small>
+      <label class="check"><input id="edEncrypt" type="checkbox" /> Encrypt the file (Tier 1 — holders decrypt; an inconvenience, not DRM)</label>
+      <label>Licence <span class="muted" style="font-weight:400">— immutable, fixed at mint, travels with the coin</span></label>
+      <select id="edLicense">
+        <option value="">— none —</option>
+        <option value="ARR">All Rights Reserved (ARR)</option>
+        <option value="TS-COM-1">Commercial use — single end product (TS-COM-1)</option>
+        <option value="CC-BY-4.0">CC BY 4.0 — credit required</option>
+        <option value="CC-BY-NC-4.0">CC BY-NC 4.0 — non-commercial</option>
+        <option value="CC0-1.0">CC0 — public domain</option>
+        <option value="__custom">Custom code…</option>
+      </select>
+      <input id="edLicenseCustom" placeholder="e.g. MY-LIC-1 (max 30 chars)" maxlength="30" hidden style="margin-top:6px" />
+      <small class="muted" style="display:block;margin:3px 0 0;font-size:12px">The licence is baked into the mint and cannot change later. To loosen terms, re-mint. (Optional.)</small>
+      <div class="combine-box covenant-only">
+        <label class="check"><input id="edCombine" type="checkbox" /> 📀 Combine existing mints into an EP <span class="muted">(reference — no re-upload)</span></label>
+        <div id="edCombineWrap" hidden>
+          <small class="muted" style="display:block;margin:2px 0 8px;font-size:12px">Pick 2+ of your collections — the EP <b>references</b> their on-chain audio (each stored once) and plays them as one release. Set the EP's own price above; an album usually costs less than the singles combined.</small>
+          <ul id="edCombineList" class="combine-list"></ul>
+          <small id="edCombineHint" class="muted" style="font-size:12px"></small>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="btnMintEdition">Mint edition collection</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">
+        Any buyer can later <b>Replicate</b> an edition (returns the NFT to the holder, mints their own copy,
+        pays both fees). <b>Transfer</b> moves it owner-signed, re-creating the covenant.
+      </p>
+
+      <details id="edMockupBox" style="margin-top:16px; border-top:1px solid var(--line,#2a2f3a); padding-top:12px">
+        <summary style="cursor:pointer; font-weight:600">🖼️ Product mockup cover <span class="muted" style="font-weight:400">— optional</span></summary>
+        <p class="muted" style="font-size:12px; margin:8px 0 10px">Attach a Pole Position <b>.bmc</b> bundle to mint this design as a <b>product</b> — your design composited on a mug, tee, tote… The <b>Type</b> (Unlimited = covenant, Limited, Exclusive), fees, bond, licence and encryption <b>above</b> all apply. The design in the bundle becomes the content + preview cover; the prop is minted once and reused by txid. Big Red renders the composited cover.</p>
+        <label>Mockup bundle (.bmc from Pole Position)</label>
+        <input id="edMockupFile" type="file" accept=".bmc,application/zip,application/octet-stream" />
+        <label style="margin-top:8px">Reuse a prop (txid, optional)</label>
+        <input id="edMockupProp" placeholder="blank = mint a new prop" />
+        <small class="muted" style="display:block;font-size:12px;margin:4px 0 0">With a bundle attached, the <b>Mint</b> button above mints the mockup product (the file/cover pickers above are ignored — the bundle supplies both).</small>
+      </details>
+    </div>
+    </section>
+
+    <section class="tabpanel" id="tab-tokens" role="tabpanel">
+    <div class="card">
+      <label>Recipient public key (for Send)</label>
+      <input id="sendPubKey" placeholder="recipient's 33-byte pubkey hex (02… / 03…)" data-scan="pubkey" />
+      <p class="wallet-warn">⚠️ Only send to another <b>smartnfts.com</b> / Phar Lap-compatible wallet. NFTs and editions are PushDrop covenant tokens — an ordinary BSV wallet won't recognize one, and the item could be <b>unrecoverable</b>.</p>
+      <div class="row" style="margin:10px 0"><button id="btnIncoming" class="secondary">Check incoming / recover</button></div>
+      <div class="nft-toolbar">
+        <button id="btnSales" class="secondary" type="button" style="margin-right:auto">📊 Sales</button>
+        <div class="view-toggle">
+          <button id="btnSortRecent" type="button">🕑 Recent</button>
+          <button id="btnSortPublisher" type="button">📤 Publisher</button>
+        </div>
+        <div class="view-toggle">
+          <button id="btnViewList" type="button">☰ List</button>
+          <button id="btnViewGrid" type="button">▦ Grid</button>
+        </div>
+      </div>
+      <div id="tokens"></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Enter a recipient public key above, then click <b>Send</b> on the NFT you want to transfer.</p>
+    </div>
+    </section>
+
+    <section class="tabpanel" id="tab-sales" role="tabpanel">
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h3 style="margin:0">📊 Sales</h3>
+          <button id="btnSalesRefresh" class="secondary">🔄 Refresh</button>
+        </div>
+        <div id="salesStats"></div>
+        <p id="salesStatus" class="muted" style="font-size:12px"></p>
+        <div id="salesBody"></div>
+        <p class="muted" style="font-size:11px;margin-top:10px">Counts &amp; earnings are at point of purchase (replications); onward transfers aren’t visible. Periods are approximate (by block height). Capped to the most recent transactions.</p>
+      </div>
+    </section>
+
+    <section class="tabpanel" id="tab-discussions" role="tabpanel">
+      <div class="card">
+        <p class="help-sub">Members-only discussion for each collection you hold — you see posts from the creator and everyone up your lineage; post to your line and your downstream sees it.</p>
+        <div class="row" style="margin:6px 0 12px"><button id="btnDiscRefresh" class="secondary">🔄 Refresh</button></div>
+        <div id="discRooms"></div>
+        <div id="discThread" hidden></div>
+      </div>
+    </section>
+
+    <section class="tabpanel" id="tab-messages" role="tabpanel">
+    <div class="card">
+      <label>Your alias (optional — a display name others see instead of your key)</label>
+      <div class="row" style="margin-bottom:6px;align-items:center">
+        <span id="myIdenticon" title="Your key-derived avatar — others see this; it can't be faked" style="display:inline-flex"></span>
+        <input id="myAlias" placeholder="@yourname" style="flex:1" />
+        <button id="btnSaveAlias" class="secondary">Save alias</button>
+        <button id="btnContacts" class="secondary">📇 Contacts</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:0 0 10px">Self-chosen and not unique — your key is the real identity (hover any @name to see it). It rides on the messages you send.</p>
+      <label>Profile image (optional — publish a small avatar with your @name)</label>
+      <div class="row" style="margin-bottom:6px;align-items:center">
+        <input id="profileAvatar" type="file" accept="image/*" style="flex:1" />
+        <button id="btnPublishProfile" class="secondary">Publish profile</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:0 0 14px">Published once to your own address (small one-time fee, downscaled automatically); updating replaces it. Until you publish one, everyone sees your key-derived identicon.</p>
+      <label>Recipient public key</label>
+      <input id="msgTo" placeholder="recipient's 33-byte pubkey hex (02… / 03…)" data-scan="pubkey" />
+      <div id="msgToName" class="muted" style="font-size:12px;min-height:16px;margin-top:2px"></div>
+      <label>Message</label>
+      <textarea id="msgText" placeholder="Write a note… (e.g. a thank-you, an announcement, an unlock)"></textarea>
+      <label>Attach a file (optional bonus content)</label>
+      <input id="msgFile" type="file" />
+      <label class="check"><input id="msgEncrypt" type="checkbox" checked /> Encrypt to the recipient (authenticated)</label>
+      <div class="row" style="margin-top:10px">
+        <button id="btnSendMessage">Send message</button>
+        <button id="btnCheckMessages" class="secondary">Check messages</button>
+      </div>
+      <div id="inbox" style="margin-top:12px"></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Messages are delivered on-chain to the recipient's pubkey (encrypted by default). A message can carry text, a file, or a content key — the basis for paid encrypted content.</p>
+    </div>
+    </section>
+
+    <section class="tabpanel" id="tab-updates" role="tabpanel">
+    <div class="card">
+      <p class="muted" style="font-size:13px;margin:0 0 10px">📣 Public announcements from the publishers of collections you hold. <b>Pulled on demand</b> — nothing is pushed to you, and you stay anonymous to the publisher. (To <i>send</i> announcements, open a collection you published in <b>My NFTs</b> and use <b>📣 Broadcast</b>.)</p>
+      <div class="row"><button id="btnCheckUpdates">Check for updates</button></div>
+      <div id="updatesFeed" style="margin-top:12px"></div>
+    </div>
+    </section>
+
+    <section class="tabpanel" id="tab-help" role="tabpanel">
+    <div class="card help">
+      <div class="help-backup">🔑 <b>First, back up your wallet.</b> Open the <b>Wallet</b> tab, reveal your <b>12-word seed phrase</b>, and write it down somewhere safe and private. It’s the only way to restore your wallet and funds on another device or after clearing your browser — and anyone who has it controls your wallet, so never share it.</div>
+      <h3>What is SMART NFTs?</h3>
+      <p>A self-custodial wallet for <b>publishing content as collectible editions on Bitcoin SV</b>. You publish
+      something once; anyone with your link can buy their own copy in a single click. The rules — your publisher
+      fee and the resale split — are enforced by the network itself. There's no account and no server: your
+      wallet lives in this browser, everything else lives on-chain.</p>
+
+      <h3>Quick start</h3>
+      <ol>
+        <li><b>Back up your wallet.</b> In <b>Wallet</b>, reveal your <b>12-word seed phrase</b> and write it down somewhere safe — it restores everything on any device. (A raw <b>WIF</b> is also shown as an equivalent backup.)</li>
+        <li><b>Add a little BSV.</b> Send a small amount to your address (shown in <b>Wallet</b>) — you need it to publish and to buy.</li>
+        <li><b>Publish an edition.</b> In <b>Publish</b>, set a name, cover, description, an optional file, and a price model, then mint.</li>
+        <li><b>Share it.</b> Your edition appears in <b>My NFTs</b> — click <b>Sales page</b> to open its public link, then <b>Share</b> it anywhere.</li>
+        <li><b>Get paid.</b> Anyone who opens the link presses <b>Get a copy</b> and owns one instantly; you (the publisher) and the current holder are paid automatically, on-chain.</li>
+      </ol>
+
+      <h3>Using each tab</h3>
+
+      <h4>💰 Wallet</h4>
+      <p class="help-sub">Your keys, balance, and backup.</p>
+      <ol>
+        <li><b>Check your balance</b> — click <b>Refresh balance</b>.</li>
+        <li><b>Receive BSV</b> — send funds to your <b>Address</b> (you need a little to publish or buy).</li>
+        <li><b>Share your identity</b> — <b>Copy public key</b> to give to anyone sending you NFTs or messages.</li>
+        <li><b>Back up</b> — reveal your <b>12-word seed phrase</b>, write it down, keep it secret. Anyone with it controls the wallet; lose it with no backup and the wallet can't be recovered. (The <b>WIF</b> is shown too as an equivalent backup.)</li>
+        <li><b>Restore / recover</b> — enter your words in <b>Restore from seed phrase</b> (or a WIF in <b>Restore from WIF</b>) → <b>Restore</b>; your holdings and purchases rebuild from chain.</li>
+        <li><b>New wallet</b> — makes a fresh wallet and shows its new seed phrase to write down (back up the current one first — it gets replaced). <i>Note: wallets imported from a WIF have no seed phrase.</i></li>
+      </ol>
+
+      <h4>🪪 Identity &amp; contacts</h4>
+      <p class="help-sub">Make keys human — names, faces, and a recoverable address book.</p>
+      <ul>
+        <li><b>Your alias</b> — set <b>@you</b>; it rides with your messages/posts. Aliases aren't unique (the pubkey is the real identity — hover any name to see it), and every key also gets a unique <b>identicon</b> so a faked name looks different.</li>
+        <li><b>Profile</b> — publish an alias + small <b>avatar</b> once; others resolve your name + face by key.</li>
+        <li><b>📇 Contacts</b> — save, rename and confirm people; your labels win over self-claimed names.</li>
+        <li><b>☁ Back up config</b> — posts an <b>encrypted-to-you</b> copy of your contacts + alias + prefs to your own address; it auto-restores (and merges, newest-wins) when you <b>Restore from WIF</b> on a new device. Note: deletes don't sync yet.</li>
+      </ul>
+
+      <h4>📤 Publish</h4>
+      <p class="help-sub">Create editions of your content for anyone to buy.</p>
+      <ol>
+        <li>Enter a <b>collection name</b> and <b>description</b>, and add a <b>cover image</b> (what buyers see).</li>
+        <li>Pick a <b>pricing model</b>: <b>Fixed fees</b> (flat publisher + holder fee in sats, min 1 each), or <b>Percentage</b> (publisher takes a % of a reseller-set price).</li>
+        <li>Set the <b>bond per edition</b> — a small refundable deposit (default 2100 sats) that rides with each copy and is reclaimable by burning. Gives every copy a price floor; pick a low bond for free drops, higher for premium.</li>
+        <li>Set how many <b>editions to mint now</b>, and optionally <b>embed a file</b> — tick <b>Encrypt</b> to make it holders-only.</li>
+        <li>Click <b>Mint edition collection</b> (needs a little BSV). Your new editions appear in <b>My NFTs</b>.</li>
+      </ol>
+
+      <h4>🎴 My NFTs</h4>
+      <p class="help-sub">Everything you hold, and what you can do with each item. Sort by <b>recent</b> or <b>publisher</b>, and toggle <b>list</b>/<b>grid</b>. Each card shows the <b>publisher's</b> avatar/name — tap <b>✉ Message</b> to DM them.</p>
+      <ul>
+        <li><b>Sell / share</b> — click <b>Sales page</b> on an edition to open its public buy link, then <b>Share</b> it anywhere.</li>
+        <li><b>Replicate</b> — mint yourself another copy of an edition.</li>
+        <li><b>Transfer / Send</b> — paste the recipient's <b>public key</b> at the top, then <b>Transfer</b> (editions) or <b>Send</b> (plain NFTs) to hand it over.</li>
+        <li><b>🔥 Burn</b> — destroy a copy you hold and reclaim its bonded sats to your wallet (irreversible).</li>
+        <li><b>OPEN</b> — view the embedded content (decrypts automatically if you're a holder).</li>
+        <li><b>Verify</b> — prove on-chain that an item is a genuine edition of its collection.</li>
+        <li><b>🎁 Gift</b> (any copy you hold) — create pre-funded links anyone can claim for free; <b>📥 Gift links</b> recovers them and <b>♻ Reclaim gifts</b> sweeps unclaimed ones back. A claimed gift nets the publisher ≈ the bond + miner fee; a <b>reseller</b> additionally pre-pays the publisher's cut (marketing spend) — the prompt shows your exact net before you fund.</li>
+        <li><b>🤝 Onboard partner</b> — transfer a copy to a listing/curation site's public key. The site then holds it and resells it, earning the reseller fee on every sale it drives, while you keep earning your publisher fee — and you get a ready-made listing link to hand over. (The site needs no live wallet; it earns passively.)</li>
+        <li><b>Publisher tools</b> (on collections you published): <b>📣 Broadcast</b> an announcement to all holders, and <b>👥 Buyers</b> to list buyers and message them.</li>
+        <li><b>Check incoming / recover</b> — scan the chain for items sent to you, or rebuild your holdings after restoring a WIF.</li>
+      </ul>
+
+      <h4>📊 Sales</h4>
+      <p class="help-sub">Your sales picture, from one scan of your own history.</p>
+      <ul>
+        <li><b>Stats</b> — sales of your mints, total <b>earned</b> (sats + BSV), your resales and unique buyers, each with a <b>this-month</b> figure.</li>
+        <li><b>As creator</b> — every collection you publish: total sales, earnings, and the full buyer list per collection.</li>
+        <li><b>As reseller</b> — items you resold: your direct buyers and earnings.</li>
+        <li>Expand a collection to <b>DM a buyer</b> or <b>Message all</b>. <b>🔄 Refresh</b> re-scans.</li>
+        <li>Figures are at <b>point of purchase</b> (onward transfers aren't visible); periods are approximate.</li>
+      </ul>
+
+      <h4>💬 Threads</h4>
+      <p class="help-sub">A members-only discussion along each collection's lineage (who bought from whom, back to the creator).</p>
+      <ul>
+        <li>Open a collection's room to read your <b>corridor</b>: posts from the <b>creator</b> and everyone up your line, plus — passively — posts from your <b>downline</b>.</li>
+        <li>Post to <b>your line</b> (your downstream sees it), <b>reply to an upline</b>, or — if you're the publisher — <b>📣 everyone</b>.</li>
+        <li>Authors carry <b>un-spoofable badges</b>: 👑 creator, 🌱 original holder, ✓ holder (derived from the real lineage).</li>
+      </ul>
+
+      <h4>✉️ DMs</h4>
+      <p class="help-sub">Private, encrypted on-chain notes or files to another person's public key.</p>
+      <ol>
+        <li>Paste the <b>recipient's public key</b> (or hit <b>✉ Message</b> on a card / buyer to pre-fill it).</li>
+        <li>Write your <b>message</b> and optionally <b>attach a file</b>.</li>
+        <li>Leave <b>Encrypt to the recipient</b> ticked for a private, authenticated message.</li>
+        <li>Click <b>Send message</b> — it's delivered on-chain to their key. Click <b>Check messages</b> to read your inbox.</li>
+        <li><b>Bulk send</b> (from 👥 Buyers / Sales): message several at once — a personalized mail-merge with <b>%buyer%</b>, <b>%publisher%</b>, <b>%product%</b> wildcards (one transaction each).</li>
+      </ol>
+
+      <h4>📣 Updates</h4>
+      <p class="help-sub">Public announcements from the publishers of collections you hold.</p>
+      <ul>
+        <li><b>As a holder:</b> click <b>Check for updates</b> to pull the latest announcements from every collection you own. Nothing is pushed — you choose when to look, and stay anonymous to the publisher.</li>
+        <li><b>As a publisher:</b> open a collection you published in <b>My NFTs</b> and click <b>📣 Broadcast</b> — one message reaches <i>every</i> current holder, however far your editions have resold, for the cost of a single transaction.</li>
+        <li>Announcements are <b>public</b> (anyone can read them). For anything private, use <b>DMs</b> or holders-only <b>encrypted content</b>.</li>
+      </ul>
+
+      <h3>How selling works</h3>
+      <p>Editions are <b>"unlimited mints"</b>: a buyer doesn't take your copy — they mint their <i>own</i> copy from
+      yours, permissionlessly, while you keep yours. Each copy can then be a source for the next buyer. Two price models:</p>
+      <ul>
+        <li><b>Fixed fees</b> — a flat publisher fee + holder fee (in satoshis), paid on every copy.</li>
+        <li><b>Percentage</b> — the publisher takes a fixed % of the sale price; the reseller keeps the rest. The split is computed and enforced by the covenant on every sale.</li>
+      </ul>
+
+      <h3>Backups &amp; recovery</h3>
+      <p>Your only secret is your <b>WIF</b>. If you lose this browser's data, paste the WIF into <b>Wallet → Restore from WIF</b>
+      on any device to rebuild your holdings and purchases straight from the blockchain. <b>If you lose the WIF with no backup, the wallet can't be recovered</b> — so back it up.</p>
+
+      <h3>Air-gapped (cold) signing</h3>
+      <p>Keep your private key on a <b>permanently-offline</b> machine and still transact. Only files cross the gap —
+      the key never does. It works for <b>plain BSV payments</b> and edition <b>transfers / burns</b>. Two machines:</p>
+      <ul>
+        <li><b>Offline (cold) box</b> — a device with no network that holds your wallet (its seed phrase / WIF). It only <b>signs</b>.</li>
+        <li><b>Online (watch) box</b> — an internet-connected device that holds <b>no key</b>. It views your holdings, <b>exports</b> unsigned requests, and <b>broadcasts</b> signed ones.</li>
+      </ul>
+      <p><b>One-time setup:</b> on the offline box, open the app and create/restore your wallet, then copy its
+      <b>public key</b> (Wallet tab — it's not a secret). On the online box, go to <b>Wallet → 👁 Watch a wallet</b>,
+      paste that public key, and tap <b>Watch</b>. The online box now shows your balance and holdings with every
+      signing button hidden.</p>
+      <p><b>To send (the 3-step loop):</b></p>
+      <ol>
+        <li><b>Export (online box).</b> Fill in <b>⚡ Send BSV</b> (or pick an edition under <b>⚙ Advanced — air-gapped signing</b>) and tap <b>Export for offline signing →</b>. It downloads a <code>…airgap-request.json</code> file. Move it to the offline box (USB stick).</li>
+        <li><b>Sign (offline box).</b> Open <b>Wallet → ⚙ Advanced → 2 · Sign offline</b>, import the request file, check the summary, and tap <b>Sign &amp; export signed tx →</b>. It downloads a signed-tx file. Move that back to the online box.</li>
+        <li><b>Broadcast (online box).</b> Open <b>⚙ Advanced → 3 · Broadcast signed</b>, import (or paste) the signed file, and tap <b>Broadcast →</b>. Done — the payment is on-chain.</li>
+      </ol>
+      <p class="muted" style="font-size:13px">The signer only ever produces the exact transaction the online wallet
+      described, and refuses anything its key doesn't own. Use a <b>fresh, dedicated USB</b>, and never type your seed
+      phrase / WIF into an online device. Full guide: <code>docs/AIR_GAPPED.md</code>.</p>
+
+      <h3>FAQ</h3>
+      <div class="kv"><b>Do buyers need an account?</b>No — anyone with a funded wallet buys from a link in one click. No sign-up, no server.</div>
+      <div class="kv"><b>What does a copy cost?</b>The price the publisher set, plus a tiny network (miner) fee. The Sales page shows the exact split before you confirm.</div>
+      <div class="kv"><b>Is my file private?</b>Tick <b>Encrypt</b> when publishing and only holders can open it. It's an inconvenience to non-holders, not hard DRM.</div>
+      <div class="kv"><b>What's the bond?</b>A small refundable deposit that rides with each edition (default 2100 sats). It gives every copy a price floor and is reclaimed by <b>burning</b> the copy — it's not a fee, nobody keeps it.</div>
+      <div class="kv"><b>Can I see who bought my work?</b>Yes — <b>👥 Buyers</b> on a collection, or the <b>📊 Sales</b> tab for everything at once, and you can DM them. It's buyers at point of sale; onward transfers aren't visible to you.</div>
+      <div class="kv"><b>What are Threads?</b>A members-only discussion scoped to a collection's lineage — you see the creator and everyone up/down your line, with un-spoofable creator/holder badges.</div>
+      <div class="kv"><b>Are my contacts safe if I switch devices?</b>Use <b>☁ Back up</b> in 📇 Contacts. It's encrypted to your own key and auto-restores when you Restore from WIF.</div>
+      <div class="kv"><b>Can I keep my key offline?</b>Yes — see <b>Air-gapped (cold) signing</b> above. The online device runs watch-only (no key); a permanently-offline device signs. Only files cross between them.</div>
+      <div class="kv"><b>Can I earn when buyers fund their wallet?</b>Yes. In <b>Wallet → 💰 Earn referrals</b>, save your SimpleSwap referral link. It rides on every sales page you share, so buyers who tap <b>💵 Buy BSV</b> get BSV under your code and you earn the commission.</div>
+      <div class="kv"><b>Why does it say experimental?</b>The covenant tech is new and runs on real mainnet BSV — use small amounts while it's being proven.</div>
+    </div>
+    </section>
+
+    <footer class="foot">
+      <div class="bsv-built"><img src="./brand/bitcoin-sv.svg" class="bsv-coin" alt="Bitcoin SV" /> Built on the <b>Bitcoin SV</b> Blockchain</div>
+      <a href="https://whatsonchain.com" target="_blank" rel="noopener" aria-label="Powered by WhatsOnChain">
+        <img src="./brand/powered-by-whatsonchain-white.svg" alt="Powered by WhatsOnChain" class="woc-badge" />
+      </a>
+      <a class="bb-badge" href="https://bananablocks.com" target="_blank" rel="noopener" aria-label="Powered by BananaBlocks">Powered by <img src="./brand/bananablocks-logo.png" alt="" class="bb-logo" /> <span class="bb-word">BananaBlocks</span></a>
+      <div style="margin-top:8px">SMART NFTs is experimental — use small amounts. · powered by PHAR LAP</div>
+      <div id="appVersion" class="app-version muted"></div>
+    </footer>
+  </div>
+
+  <div id="collectionView" class="cview" style="display:none">
+    <div class="cv-ambient" aria-hidden="true"></div>
+    <div class="cview-box">
+      <header class="cv-top">
+        <div class="cv-brand"><span class="cv-brand-mark">⚡</span> SMART NFTs</div>
+        <button id="cvWallet" class="cv-ghost">Open wallet</button>
+      </header>
+
+      <figure class="cv-hero">
+        <div id="cvCover" class="cv-cover"></div>
+        <div id="cvPreview" class="cv-preview"></div>
+      </figure>
+
+      <div class="cv-head">
+        <h1 id="cvTitle" class="cv-title"></h1>
+        <div id="cvBadges" class="cv-badges"></div>
+        <div id="cvPublisher" class="mono cv-publisher muted"></div>
+      </div>
+
+      <div class="cv-buy-top">
+        <button id="cvGetTop" class="cv-cta">Get a copy</button>
+      </div>
+
+      <p id="cvDesc" class="cv-desc"></p>
+
+      <div id="cvNote" class="cv-note" style="display:none"></div>
+      <div id="cvBonus" class="cv-bonus" style="display:none"></div>
+
+      <div id="cvNoteEdit" class="cv-noteedit card" style="display:none">
+        <label>Listing heading (optional — a custom title for your listing; buyers &amp; listing sites see it)</label>
+        <input id="cvNoteHeading" placeholder="e.g. Phar Lap App — June Snapshot" />
+        <label>Listing description / seller note (public — promo, redemption info; buyers see it)</label>
+        <textarea id="cvNoteText" placeholder="e.g. A zip of the current app build. Thanks for buying!"></textarea>
+        <label>Tags (optional — categories for listing sites)</label>
+        <input id="cvNoteTags" placeholder="#software #tools   (or comma-separated)" />
+        <label>Buyer bonus (optional — delivered to buyers, propagates downstream)</label>
+        <div class="grid2" style="grid-template-columns:120px 1fr">
+          <select id="cvBonusKind">
+            <option value="none">No bonus</option>
+            <option value="link">Link</option>
+            <option value="code">Code</option>
+          </select>
+          <input id="cvBonusValue" placeholder="https://your-site/claim  or  a redeem code" />
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button id="cvNoteSave" class="secondary">Publish note</button>
+          <button id="cvNoteRefresh" class="secondary" style="display:none" title="Tell nft.sale to re-read this note — it updates on the next curator run">🔄 Refresh nft.sale</button>
+          <span id="cvNoteStatus" class="muted" style="font-size:12px"></span>
+        </div>
+      </div>
+
+      <section class="cv-buy">
+        <div id="cvPrice" class="cv-price"></div>
+        <div class="cv-actions">
+          <button id="cvGet" class="cv-cta">Get a copy</button>
+          <button id="cvView" class="secondary" style="display:none">View content</button>
+          <button id="cvShare" class="secondary">Share</button>
+          <button id="cvQr" class="secondary">QR</button>
+          <a id="cvBuyAnother" class="cv-another" role="button" tabindex="0" style="display:none">Buy another copy</a>
+        </div>
+        <div id="cvStatus" class="cv-status"></div>
+      </section>
+
+      <div id="cvFund" class="cv-fund" style="display:none">
+        <div>Fund your wallet to buy — need <b id="cvFundNeed"></b>, have <span id="cvFundHave" class="muted"></span>.</div>
+        <div style="margin-top:8px">Send a little <b>Bitcoin SV (BSV)</b> — not BTC — to your wallet address:</div>
+        <div class="row" style="margin-top:4px">
+          <span id="cvFundAddr" class="mono"></span>
+          <button id="cvFundCopy" class="secondary">Copy</button>
+        </div>
+        <div id="cvFundQr" class="muted" style="font-size:12px;margin-top:6px">QR code coming shortly — for now, copy the address above and send from your phone/wallet.</div>
+        <button id="cvFundDone" style="margin-top:10px">I’ve funded — buy now</button>
+      </div>
+
+      <footer class="foot">
+        <div class="bsv-built"><img src="./brand/bitcoin-sv.svg" class="bsv-coin" alt="Bitcoin SV" /> Built on the <b>Bitcoin SV</b> Blockchain</div>
+        <a href="https://whatsonchain.com" target="_blank" rel="noopener" aria-label="Powered by WhatsOnChain">
+          <img src="./brand/powered-by-whatsonchain-white.svg" alt="Powered by WhatsOnChain" class="woc-badge" />
+        </a>
+        <a class="bb-badge" href="https://bananablocks.com" target="_blank" rel="noopener" aria-label="Powered by BananaBlocks">Powered by <img src="./brand/bananablocks-logo.png" alt="" class="bb-logo" /> <span class="bb-word">BananaBlocks</span></a>
+        <div style="margin-top:8px">SMART NFTs is experimental — use small amounts. · powered by PHAR LAP</div>
+      </footer>
+    </div>
+  </div>
+
+  <div id="viewer" class="modal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-head"><span id="viewerTitle" class="mono"></span><button id="viewerClose" class="secondary">✕ Close</button></div>
+      <div id="viewerProvenance" class="viewer-banner" style="display:none"></div>
+      <div id="viewerContent"></div>
+    </div>
+  </div>
+
+  <div id="tokenModal" class="modal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-head"><span class="mono">NFT detail</span><button id="tokenModalClose" class="secondary">✕ Close</button></div>
+      <div id="tokenModalBody"></div>
+    </div>
+  </div>
+
+  <div id="contactsModal" class="modal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-head"><span>📇 Contacts</span><button id="contactsClose" class="secondary">✕ Close</button></div>
+      <label>Add a contact</label>
+      <input id="contactPk" placeholder="their pubkey hex (02… / 03…)" />
+      <div class="row" style="margin:6px 0 14px">
+        <input id="contactName" placeholder="@name" style="flex:1" />
+        <button id="contactAdd" class="secondary">Add</button>
+      </div>
+      <div class="cfg-backup">
+        <div class="row" style="gap:8px;align-items:center">
+          <button id="btnCfgBackup" class="secondary">☁ Back up</button>
+          <button id="btnCfgRestore" class="secondary">⤓ Restore</button>
+          <span id="cfgBackupNote" class="muted" style="font-size:12px;flex:1"></span>
+        </div>
+        <p class="muted" style="font-size:11px;margin:6px 0 0">An <b>encrypted</b> copy of your address book, alias &amp; prefs, posted to your own address — only your key can read it, and it restores on any device. (Deletes don't sync.)</p>
+      </div>
+      <div id="contactsBody"></div>
+    </div>
+  </div>
+
+  <script src="./testbundle2.js"></script>
+</body>
+</html>

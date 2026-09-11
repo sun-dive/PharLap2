@@ -82,6 +82,22 @@ Third-party data
 
 ----------------------------------------------------------------------
 
+This product includes jsQR.
+
+  jsqr.min.js
+  Copyright (c) Cosmo Wolfe (https://github.com/cozmo/jsQR)
+  Licensed under the Apache License, Version 2.0.
+  https://www.apache.org/licenses/LICENSE-2.0
+
+  Used for: decoding a QR code from camera frames on browsers that have
+  no native BarcodeDetector. The page loads it only when that happens;
+  it is never part of the bundle.
+
+  ⚠ The file is the minified copy the deployed wallet ships. It carries
+  no header of its own, so its exact upstream version is not recorded.
+
+----------------------------------------------------------------------
+
 Everything else in this repository was written for this project. See
 PROVENANCE.md for the method, the controls, and what was read rather
 than taken.
