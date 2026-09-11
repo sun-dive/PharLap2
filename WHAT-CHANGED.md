@@ -201,12 +201,20 @@ choice would be visible. The choice has been made; the injection is gone.
 
 ---
 
-## 7 · What is NOT here yet
+## 7 · The first real send
 
-★★★ **Nothing has been broadcast.** Every check in this repository grades against frozen chain data,
-the specifications' published vectors, openssl, an injected transport, or the deployed wallet's own
-bytes. That is a strong position and it is not the same as having spent a satoshi. **The first real send
-is the one none of it can stand in for.**
+Until 11 September 2026 every check in this repository graded against frozen chain data, the
+specifications' published vectors, openssl, an injected transport, or the deployed wallet's own bytes.
+That is a strong position and it is not the same as having spent a satoshi.
+
+On that day the wallet, deployed at `smartnfts.com/pharlap2test/`, signed and broadcast its first
+transaction: `a7c691a863cc39533c96c6ec2dd94dff2a4088b78a86fb5bfaa6f11941127051`, 21 sat to another wallet
+with 20,956 sat change, 226 bytes, fee 23 sat, mined in block 966243. Read back with this repository's own
+parser: the signature verifies under BIP-143 for the input's amount and fails for any other, is strict
+DER with low S, and the fee rule here reproduces the change amount exactly. With the on-chain signature
+placed into a rebuild from those rules, the hex and txid are identical.
+
+What has not yet happened on chain from this wallet: a mint, a transfer, a replication, a burn.
 
 ---
 
