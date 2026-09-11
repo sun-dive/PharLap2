@@ -214,7 +214,14 @@ parser: the signature verifies under BIP-143 for the input's amount and fails fo
 DER with low S, and the fee rule here reproduces the change amount exactly. With the on-chain signature
 placed into a rebuild from those rules, the hex and txid are identical.
 
-What has not yet happened on chain from this wallet: a mint, a transfer, a replication, a burn.
+Later the same day the wallet spent its first covenants. `b912f6d297f715328c5100de73959985705ca3bd3b96bc5276a01298650661ba`
+replicates an edition it had received: the unlock carries the exact BIP-143 introspection preimage of the
+transaction, out0 re-creates the spent script byte for byte, out1 is that script with only the owner
+swapped, the publisher and holder fees are the script's own terms, and the fee rule reproduces the change.
+`3b56998bb5fa0d174d66f27b59a32faf0d80cb174c7ee57277d559de1d0d6b09` transfers the replica to another wallet
+under the owner's signature, which verifies under the edition lock for the bond.
+
+What has not yet happened on chain from this wallet: a mint and a burn.
 
 ---
 
