@@ -193,6 +193,26 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
      '★ the background guard waits longer before re-sending, because nothing is blocked on it')
 }
 
+// ── ★★ one fetch per transaction at a time ──────────────────────────────────────────────────────────
+//
+// ⚠ Several scans ask for the same transaction in the same moment, and the cache fills only when the
+//   fetch lands. Measured on a live replicate: 20 of 45 requests in the preparing phase were repeats, each
+//   2 s behind the rate limiter. So concurrent callers must share one in-flight fetch.
+{
+  const hexA = TX.hex
+  const { p, calls } = wired(url => (/\/tx\/[0-9a-f]{64}\/hex$/.test(url) ? resp(hexA) : resp({}, 404)))
+  const [x, y, z] = await Promise.all([p.getSourceTransaction(TX.txid), p.getSourceTransaction(TX.txid), p.getRawTransaction(TX.txid)])
+  ok(calls.length === 1, `★★★ three concurrent callers for one txid make ONE network request (${calls.length})`)
+  ok(x === y && x.txid() === TX.txid && z === hexA, '★ …and all three get the same answer')
+  const before = calls.length
+  await p.getSourceTransaction(TX.txid)
+  ok(calls.length === before, '★ …and a later caller is served from the cache')
+  const bad = wired(() => resp('', 500))
+  const r1 = await rejects(bad.p.getSourceTransaction(TX.txid), 'raw TX fetch failed')
+  const r2 = await rejects(bad.p.getSourceTransaction(TX.txid), 'raw TX fetch failed')
+  ok(r1 && r2 && bad.calls.length === 2, '⛔ a failed fetch is not cached: the next caller tries the network again')
+}
+
 rmSync(tmp, { recursive: true, force: true })
 console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [wallet layer · the deployed file, adapted]`)
 process.exit(fail === 0 ? 0 : 1)
