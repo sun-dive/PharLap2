@@ -221,7 +221,16 @@ exact introspection preimage, the owner's signature verifies under the edition l
 the fee returns to the wallet. Replication and burn were then used repeatedly, with the response near
 instant once the local bookkeeping and the retire-on-absence bug were fixed on 12 September.
 
-What has not yet happened on chain from this wallet: a mint.
+On 12 September the wallet minted its first collection. TX1
+`34367ac0fb884051b1889183d6844fc5a867b6e679d83b00a8e95d00cf67154e` (82,658 bytes) carries the template,
+the file and the storefront; TX2 `4d392922fc1ca7f0a604f5bf9b5bf17d574f5e4d74e98c14248f7e2fb461b2db`
+(985 bytes) spends TX1's change and mints one edition. Read back with this repository's own code: the
+template is locked to the publisher's key and commits the covenant with the collection id and owner
+zeroed; the file output holds the DEFLATE-compressed bytes and the template's hash is the SHA-256 of the
+decompressed original; the edition script in TX2 is the committed template with TX1's id and the owner
+spliced in, byte for byte, and `buildEditionLock` from the parsed terms gives the same bytes; both
+funding signatures verify under BIP-143 for their amounts and fail for any other; and the fee rule
+reproduces both change amounts exactly.
 
 ---
 
