@@ -6640,7 +6640,7 @@
       backCoverBytes: params.cover != null ? params.backCover?.bytes : void 0
     } : void 0;
     const editionBytes = 800;
-    const tx1Bytes = 500 + templateLock.toBinary().length + (file ? file.fileBytes.length : 0) + (params.cover ? params.cover.bytes.length : 0);
+    const tx1Bytes = 500 + templateLock.toBinary().length + (file ? file.fileBytes.length : 0) + (params.cover ? params.cover.bytes.length : 0) + (params.cover != null && params.backCover ? params.backCover.bytes.length : 0) + (params.mockupManifest ? params.mockupManifest.length : 0);
     const tx2Bytes = 300 + mintCount * editionBytes;
     const estFee = Math.ceil((tx1Bytes + tx2Bytes) * feePerKb / 1e3);
     const target = (1 + mintCount) * tokenSats + estFee + Math.max(1e3, Math.ceil(estFee * 0.2));
@@ -15164,7 +15164,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"07a0e3a"} \xB7 ${"2026-09-11"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"961bbbe"} \xB7 ${"2026-09-12"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
