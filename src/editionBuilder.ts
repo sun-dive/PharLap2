@@ -513,9 +513,14 @@ export async function createEdition(provider: WalletProvider, key: Signer, param
 
   // Fund both txs. TX1 carries any embedded file + cover, so its fee scales with their size; keep a healthy margin.
   const editionBytes = 800
+  /* ⚠ Every byte TX1 carries must be in this estimate, or the coins selected fall short of the fee the build
+     then computes. The back cover and the mockup manifest ride in TX1's storefront and mockup outputs and
+     were missing here; a 200 KB back cover selected one coin and the build asked for 25,684 sat. */
   const tx1Bytes = 500 + templateLock.toBinary().length
     + (file ? file.fileBytes.length : 0)
     + (params.cover ? params.cover.bytes.length : 0)
+    + (params.cover != null && params.backCover ? params.backCover.bytes.length : 0)
+    + (params.mockupManifest ? params.mockupManifest.length : 0)
   const tx2Bytes = 300 + mintCount * editionBytes
   const estFee = Math.ceil(((tx1Bytes + tx2Bytes) * feePerKb) / 1000)
   const target = (1 + mintCount) * tokenSats + estFee + Math.max(1000, Math.ceil(estFee * 0.2))
