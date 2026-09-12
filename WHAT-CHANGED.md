@@ -8,7 +8,7 @@ same on-chain formats. **What changed is underneath it.**
 ## 1 · Why at all
 
 | ⚖ **Field of use** | Phar Lap 1's wallet library is licensed for use on one blockchain. This project also runs a second chain, so that restriction is a boundary rather than a preference — the wallet core has to be usable on both. |
-| ⚖ **Redistribution** | A wallet bundle ships to every visitor. Everything inside it is something we hand on, under terms we have to be able to state. ⇒ **Zero runtime dependencies is the simplest honest answer**, and it is the one Phar Lap 2 gives. |
+| ⚖ **Redistribution** | A wallet bundle ships to every visitor. Everything inside it is something we hand on, under terms we have to be able to state. ⇒ **Owning every line that can be owned, and crediting the rest by name, is the simplest honest answer.** Phar Lap 2 carries two third-party components, both named in NOTICE: one MIT hashing library (section 6) and an Apache-licensed QR decoder the page loads on demand. |
 | ★ **Verifiability** | Owning the core means every layer can be graded against a published oracle rather than trusted — which is what `PROVENANCE.md` and the vector harness exist to make checkable. |
 
 ⇒ **Phar Lap 2 is Business Source License 1.1**, © sun-dive, converting to **Apache 2.0** on
