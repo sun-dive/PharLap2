@@ -18,7 +18,7 @@ nothing is left to say where to look.
 | | |
 |---|---|
 | **Licence** | **Business Source License 1.1** · © 2026 sun-dive — source-available, converting to **Apache 2.0** on 2030-09-09 |
-| **Runtime dependencies** | **none** — `package.json` has no `dependencies` block because there is nothing to declare |
+| **Runtime dependencies** | **two**, both credited in `NOTICE` - `@noble/hashes` (MIT) for synchronous hashing, and `jsQR` (Apache 2.0), loaded by the page only for camera scanning |
 | **Third-party source code** | **none.** Every line under `impl/` and `runner/` was written for this repo |
 | **Third-party data** | **one file** — BIP-39's official English wordlist. See §3 |
 
@@ -156,3 +156,17 @@ for.
 
 ★ An earlier draft called it `RELAY_DUST`, which asserted something false about this chain. A borrowed
 number under a name that grants it authority is worse than no constant at all.
+
+---
+
+## 7 · Mints - the source timestamped on chain
+
+Each row is a two-transaction genesis mint of the source archive, made with this wallet: TX1 carries the
+archive as a file output whose SHA-256 the template commits; TX2 mints the edition. Anyone can pull the
+archive from TX1, hash it, and match the column below.
+
+| Date | Commit | Archive SHA-256 | TX1 | TX2 |
+|------|--------|-----------------|-----|-----|
+| 2026-09-12 | `419157f` | `07b90a83bbb54b4ac3a0908962dc41ef94a6722a38dc5b5a99e8b3be5a5621f0` | `f8d3d66a65ea8fc2259a65261a873c86b8863b127df5c0acdda0f6874db33bd6` | `21bbfe865a085ea3a62ea781514d3d6f7b1ad51eb7a7b5aa386b72024e8daf39` |
+
+<!-- append-only: add one row per release mint. Newest at the bottom. -->

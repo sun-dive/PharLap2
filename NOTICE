@@ -101,3 +101,21 @@ This product includes jsQR.
 Everything else in this repository was written for this project. See
 PROVENANCE.md for the method, the controls, and what was read rather
 than taken.
+
+----------------------------------------------------------------------
+Provenance
+----------------------------------------------------------------------
+
+    pharlap2-codebase.tar.gz  (the source at commit 419157f)
+    SHA-256  07b90a83bbb54b4ac3a0908962dc41ef94a6722a38dc5b5a99e8b3be5a5621f0
+
+    Timestamped on the BSV blockchain by a two-transaction genesis mint,
+    made with this wallet - All Rights Reserved, unencrypted, authored
+    by sun-dive:
+      TX1  f8d3d66a65ea8fc2259a65261a873c86b8863b127df5c0acdda0f6874db33bd6
+      TX2  21bbfe865a085ea3a62ea781514d3d6f7b1ad51eb7a7b5aa386b72024e8daf39
+
+    Anyone can hash the archive pulled from chain and match the SHA-256
+    above. The on-chain copy of this NOTICE predates the mint, so it
+    carries no txid; the authoritative record is this repository plus
+    the transactions above. The running ledger is in PROVENANCE.md.
