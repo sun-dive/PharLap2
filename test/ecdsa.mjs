@@ -17,7 +17,8 @@
  *   match it, not that either of you is right.** It matters only because keys must restore to the same
  *   addresses. It never grades correctness, and the suite is complete without it.
  */
-import { sign, verifyDigest, publicKey, decodeDer } from '../impl/js/ecdsa.mjs'
+import { sign, verifyDigest, publicKey, decodeDer, decodePoint } from '../impl/js/ecdsa.mjs'
+import { G, P, mul, add, mulAdd } from '../impl/js/secp256k1.mjs'
 import { toHex, fromHex } from '../impl/js/bytes.mjs'
 import { sha256 } from '@noble/hashes/sha2.js'
 import { readFileSync } from 'node:fs'
@@ -69,6 +70,24 @@ if (padded) {
   ok(decodeDer(fromHex(stripped)) === null,
      "⛔ r stripped of its required 0x00 is REFUSED — malleability, barred on the network since BIP-66")
 } else ok(false, 'no 0x00-padded r in the vector set to test malleability with')
+
+// ── mulAdd, the verifier's a·P1 + b·P2, against the affine mul and add ─────────────────────────────
+{
+  const same = (p, q) => (p === null && q === null) || (p !== null && q !== null && p.x === q.x && p.y === q.y)
+  const Q = decodePoint(fromHex(O.vectors[1].pub)), negG = { x: G.x, y: P - G.y }
+  let diff = 0
+  for (const v of O.vectors.slice(0, 16)) {
+    const a = BigInt('0x' + v.priv), b = BigInt('0x' + v.digest)
+    if (!same(mulAdd(a, G, b, Q), add(mul(a, G), mul(b, Q)))) diff++
+  }
+  ok(diff === 0, `mulAdd agrees with mul+add on ${16 - diff}/16 scalar pairs`)
+  ok(same(mulAdd(0n, G, 5n, Q), mul(5n, Q)), 'mulAdd with a = 0')
+  ok(same(mulAdd(7n, G, 0n, Q), mul(7n, G)), 'mulAdd with b = 0')
+  ok(mulAdd(0n, G, 0n, Q) === null, 'mulAdd of nothing is infinity')
+  ok(same(mulAdd(1n, G, 1n, G), mul(2n, G)), 'P1 = P2 takes the doubling branch of jAdd')
+  ok(mulAdd(1n, G, 1n, negG) === null, 'P1 = -P2 cancels to infinity')
+  ok(same(mulAdd(3n, G, 2n, negG), G), '3G - 2G = G')
+}
 
 // ── ⚪ OPTIONAL · compatibility with the DEPLOYED wallet. NOT a correctness claim. ───────────────────
 const S = load('deployed-signature-vectors.json')

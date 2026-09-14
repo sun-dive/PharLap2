@@ -159,6 +159,10 @@ that to **one** inversion at the end. The ladder does roughly twice the point op
 in a fraction of the time: **40.5 ms → 2.10 ms** per signature. Constant-time is normally a cost; here
 it paid for itself because the thing it replaced was the expensive part.
 
+Verification followed on 15 September: `verifyDigest` computes `u1·G + u2·Q` with `mulAdd`, a
+Straus-Shamir double-and-add in Jacobian form over the two public scalars, **68.9 ms → 1.55 ms** per
+signature. Public inputs, so variable time is fine there; the secret path stays on the ladder.
+
 ⚠⚠ **It was written once and did nothing for a day.** `mulBlinded` lived in `ecdsa.mjs` and called
 `mul`, whose first line is `k = mod(k, N)` — reducing `k + b·n` straight back to `k`. Measured, the
 blinded call cost **0.998×** the unblinded one. Every test stayed green throughout, because blinding is
