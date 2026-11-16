@@ -4067,6 +4067,36 @@
     return toHex(serP(point));
   };
 
+  // src/tokenProtocol.ts
+  var SELF_PAIR = "*";
+  function hexToBytes(hex) {
+    const bytes = [];
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes.push(parseInt(hex.substring(i, i + 2), 16));
+    }
+    return bytes;
+  }
+  function bytesToHex(bytes) {
+    return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function doubleSha256(data) {
+    return sha256Bytes(sha256Bytes(data));
+  }
+  function verifyMerkleProof(entry) {
+    let current = hexToBytes(entry.txId).reverse();
+    for (const node of entry.path) {
+      if (node.hash === SELF_PAIR) {
+        current = doubleSha256([...current, ...current]);
+        continue;
+      }
+      const sibling = hexToBytes(node.hash).reverse();
+      const combined = node.position === "R" ? [...current, ...sibling] : [...sibling, ...current];
+      current = doubleSha256(combined);
+    }
+    const computedRoot = bytesToHex(current.reverse());
+    return computedRoot === entry.merkleRoot;
+  }
+
   // impl/js/chain.mjs
   var MIN_REQUEST_GAP_MS = 350;
   var ChainError = class extends Error {
@@ -4214,13 +4244,12 @@
           script: ""
         }));
       };
-      const allResp = await fetchWithRetry(`${WOC_BASE}/address/${address2}/unspent/all`);
-      if (!allResp.ok) throw new Error(`WoC UTXO fetch failed: ${allResp.status}`);
-      const confirmedUtxos = mapRows(await allResp.json());
+      const allRows = await this.allPages(`/address/${address2}/unspent/all`, "UTXO");
+      if (allRows == null) throw new Error("WoC UTXO fetch failed: 404");
+      const confirmedUtxos = mapRows(allRows);
       let unconfirmedUtxos = [];
       try {
-        const ucResp = await fetchWithRetry(`${WOC_BASE}/address/${address2}/unconfirmed/unspent`);
-        if (ucResp.ok) unconfirmedUtxos = mapRows(await ucResp.json());
+        unconfirmedUtxos = mapRows(await this.allPages(`/address/${address2}/unconfirmed/unspent`, "unconfirmed UTXO") ?? []);
       } catch {
       }
       const seen = /* @__PURE__ */ new Set();
@@ -4563,23 +4592,35 @@
      * Every page goes through the same queue as every other request. A failed page throws rather than
      * returning what was read so far: a short history looks exactly like a complete one.
      */
-    async getFullAddressHistory(address2 = this.getAddress()) {
-      const heights = /* @__PURE__ */ new Map();
-      const rowsOf = (data) => Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
+    /**
+     * Every row of a WoC list that answers in pages: `result` and a `nextPageToken`, the next page asked for with
+     * `?token=`. ⚠ The history and unspent lists answer at most 1,000 rows a page (measured on an unspent list: the
+     * second page held 1,000 more, none repeated), so reading only the first hides the rest. An empty page, no
+     * token, or a token already followed ends it. A failed page throws: a short list looks complete. A 404 on the
+     * first page means WoC has never seen the address or script: null.
+     */
+    async allPages(path, what) {
+      const rows = [];
       const tokens = /* @__PURE__ */ new Set();
       let token = "";
       for (; ; ) {
-        const query = token === "" ? "" : `?token=${encodeURIComponent(token)}`;
-        const resp = await fetchWithRetry(`${WOC_BASE}/address/${address2}/confirmed/history${query}`);
-        if (resp.status === 404) break;
-        if (!resp.ok) throw new Error(`WoC confirmed history fetch failed: ${resp.status}`);
+        const resp = await fetchWithRetry(`${WOC_BASE}${path}${token === "" ? "" : `?token=${encodeURIComponent(token)}`}`);
+        if (resp.status === 404 && token === "") return null;
+        if (!resp.ok) throw new Error(`WoC ${what} fetch failed: ${resp.status}`);
         const data = await resp.json();
-        const rows = rowsOf(data);
-        for (const r of rows) heights.set(r.tx_hash, r.height ?? 0);
+        const page = Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
+        rows.push(...page);
         const next = typeof data?.nextPageToken === "string" ? data.nextPageToken : "";
-        if (rows.length === 0 || next === "" || tokens.has(next)) break;
+        if (page.length === 0 || next === "" || tokens.has(next)) return rows;
         tokens.add(next);
         token = next;
+      }
+    }
+    async getFullAddressHistory(address2 = this.getAddress()) {
+      const heights = /* @__PURE__ */ new Map();
+      const rowsOf = (data) => Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
+      for (const r of await this.allPages(`/address/${address2}/confirmed/history`, "confirmed history") ?? []) {
+        heights.set(r.tx_hash, r.height ?? 0);
       }
       const pending = await fetchWithRetry(`${WOC_BASE}/address/${address2}/unconfirmed/history`);
       if (pending.ok) {
@@ -4619,14 +4660,17 @@
     }
     async getUnspentByScriptHash(scriptHash) {
       const mapRows = (data) => {
-        const rows = Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
-        return rows.filter((u) => u.isSpentInMempoolTx !== true).map((u) => ({ txId: u.tx_hash, outputIndex: u.tx_pos, satoshis: u.value, script: "", height: u.height }));
+        const rows2 = Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
+        return rows2.filter((u) => u.isSpentInMempoolTx !== true).map((u) => ({ txId: u.tx_hash, outputIndex: u.tx_pos, satoshis: u.value, script: "", height: u.height }));
       };
-      const all = await fetchWithRetry(`${WOC_BASE}/script/${scriptHash}/unspent/all`);
-      if (all.ok) return mapRows(await all.json());
-      const resp = await fetchWithRetry(`${WOC_BASE}/script/${scriptHash}/unspent`);
-      if (!resp.ok) throw new Error(`WoC script-unspent fetch failed: ${resp.status}`);
-      return mapRows(await resp.json());
+      let rows = null;
+      try {
+        rows = await this.allPages(`/script/${scriptHash}/unspent/all`, "script-unspent");
+      } catch {
+        rows = null;
+      }
+      if (rows == null) rows = await this.allPages(`/script/${scriptHash}/unspent`, "script-unspent") ?? [];
+      return mapRows(rows);
     }
     /**
      * Unspent outputs for many scripts, 20 scripts to a request: WoC's bulk `/scripts/unspent` (confirmed) and
@@ -4685,12 +4729,7 @@
     async getRecentTxIdsForAddress(address2) {
       const out = /* @__PURE__ */ new Set();
       try {
-        const r = await fetchWithRetry(`${WOC_BASE}/address/${address2}/unspent/all`);
-        if (r.ok) {
-          const data = await r.json();
-          const rows = Array.isArray(data?.result) ? data.result : Array.isArray(data) ? data : [];
-          for (const u of rows) if (u.tx_hash) out.add(u.tx_hash);
-        }
+        for (const u of await this.allPages(`/address/${address2}/unspent/all`, "unspent") ?? []) if (u.tx_hash) out.add(u.tx_hash);
       } catch {
       }
       return [...out];
@@ -4699,16 +4738,13 @@
     async getMerkleProof(txId) {
       return await this.merkleProofBanana(txId) ?? await this.merkleProofWoC(txId);
     }
-    /** TSC `nodes` + tx `index` → L/R sibling path ('*' = duplicate-up, no sibling). Shared by both sources. */
+    /** TSC `nodes` + tx `index` → L/R sibling path. Shared by both sources. A `*` is kept as a step of its own:
+     *  the working hash paired with itself, not a step to skip. */
     tscPath(nodes, index) {
       const path = [];
       let idx = index;
       for (const node of nodes) {
-        if (node === "*") {
-          idx = idx >> 1;
-          continue;
-        }
-        path.push({ hash: node, position: idx % 2 === 0 ? "R" : "L" });
+        path.push({ hash: node === "*" ? SELF_PAIR : node, position: idx % 2 === 0 ? "R" : "L" });
         idx = idx >> 1;
       }
       return path;
@@ -5015,10 +5051,10 @@
   var RESTRICTION_TRACK_TRANSFERS = 4;
   var RESTRICTION_ENCRYPTED = 8;
   var RESTRICTION_COMPRESSED = 16;
-  function hexToBytes(hex) {
+  function hexToBytes2(hex) {
     return hex.length === 0 ? [] : hexBytes(hex);
   }
-  function bytesToHex(bytes) {
+  function bytesToHex2(bytes) {
     return hexOf(bytes);
   }
   function utf8ToBytes2(s) {
@@ -5035,8 +5071,8 @@
       P_PREFIX,
       [P_VERSION],
       [RECORD_TOKEN],
-      hexToBytes(data.tx1Ref),
-      hexToBytes(data.stateData)
+      hexToBytes2(data.tx1Ref),
+      hexToBytes2(data.stateData)
     ];
   }
   function decodeTokenFields(fields) {
@@ -5046,8 +5082,8 @@
     if (fields[2].length !== 1 || fields[2][0] !== RECORD_TOKEN) return null;
     if (fields[3].length !== 32) return null;
     return {
-      tx1Ref: bytesToHex(fields[3]),
-      stateData: bytesToHex(fields[4])
+      tx1Ref: bytesToHex2(fields[3]),
+      stateData: bytesToHex2(fields[4])
     };
   }
   function buildTokenScript(ownerPubKeyHex, data) {
@@ -5065,7 +5101,7 @@
       P_PREFIX,
       [P_VERSION],
       [RECORD_MESSAGE],
-      hexToBytes(data.ref),
+      hexToBytes2(data.ref),
       data.envelope
     ];
   }
@@ -5076,7 +5112,7 @@
     if (fields[2].length !== 1 || fields[2][0] !== RECORD_MESSAGE) return null;
     if (fields[3].length !== 32) return null;
     return {
-      ref: bytesToHex(fields[3]),
+      ref: bytesToHex2(fields[3]),
       envelope: fields[4]
     };
   }
@@ -5099,11 +5135,11 @@
       [P_VERSION],
       [RECORD_TEMPLATE],
       utf8ToBytes2(data.tokenName),
-      hexToBytes(data.tokenRules),
-      hexToBytes(data.covenantScript)
+      hexToBytes2(data.tokenRules),
+      hexToBytes2(data.covenantScript)
     ];
     if (data.fileHash != null && data.fileHash.length > 0) {
-      fields.push(hexToBytes(data.fileHash));
+      fields.push(hexToBytes2(data.fileHash));
       if (data.wrappedKey != null && data.keySalt != null) {
         fields.push(data.wrappedKey, data.keySalt);
       }
@@ -5114,7 +5150,7 @@
       fields.push([TEMPLATE_TAG_LICENSE, ...code]);
     }
     if (data.licenseRef != null && data.licenseRef.length > 0) {
-      fields.push([TEMPLATE_TAG_LICENSE_REF, ...hexToBytes(data.licenseRef)]);
+      fields.push([TEMPLATE_TAG_LICENSE_REF, ...hexToBytes2(data.licenseRef)]);
     }
     return fields;
   }
@@ -5125,13 +5161,13 @@
     if (fields[2].length !== 1 || fields[2][0] !== RECORD_TEMPLATE) return null;
     const result = {
       tokenName: bytesToUtf8(fields[3]),
-      tokenRules: bytesToHex(fields[4]),
+      tokenRules: bytesToHex2(fields[4]),
       // Empty covenant normalizes to "00" via OP_0; treat that as "no covenant".
-      covenantScript: isEmptyOrZero(fields[5]) ? "" : bytesToHex(fields[5])
+      covenantScript: isEmptyOrZero(fields[5]) ? "" : bytesToHex2(fields[5])
     };
     let i = 6;
     if (fields.length > i && fields[i].length === 32) {
-      result.fileHash = bytesToHex(fields[i]);
+      result.fileHash = bytesToHex2(fields[i]);
       i++;
       if (decodeTokenRules(result.tokenRules).isEncrypted && fields.length >= i + 2) {
         result.wrappedKey = fields[i];
@@ -5143,7 +5179,7 @@
       const f = fields[i];
       if (f.length < 1) continue;
       if (f[0] === TEMPLATE_TAG_LICENSE) result.license = bytesToUtf8(f.slice(1));
-      else if (f[0] === TEMPLATE_TAG_LICENSE_REF) result.licenseRef = bytesToHex(f.slice(1));
+      else if (f[0] === TEMPLATE_TAG_LICENSE_REF) result.licenseRef = bytesToHex2(f.slice(1));
     }
     return result;
   }
@@ -5313,7 +5349,7 @@
       P_PREFIX,
       [P_VERSION],
       [RECORD_NOTE],
-      hexToBytes(data.collectionRef),
+      hexToBytes2(data.collectionRef),
       utf8ToBytes2(data.text)
     ];
     if (data.bonusKind != null && data.bonusValue != null && data.bonusValue.length > 0) {
@@ -5330,7 +5366,7 @@
     if (fields[2].length !== 1 || fields[2][0] !== RECORD_NOTE) return null;
     if (fields[3].length !== 32) return null;
     const result = {
-      collectionRef: bytesToHex(fields[3]),
+      collectionRef: bytesToHex2(fields[3]),
       text: isEmptyOrZero(fields[4]) ? "" : bytesToUtf8(fields[4])
     };
     for (let i = 5; i + 1 < fields.length; i += 2) {
@@ -5363,7 +5399,7 @@
       P_PREFIX,
       [P_VERSION],
       [RECORD_PREVIEW],
-      hexToBytes(data.collectionRef),
+      hexToBytes2(data.collectionRef),
       utf8ToBytes2(data.mimeType),
       data.previewBytes
     ];
@@ -5375,7 +5411,7 @@
     if (fields[2].length !== 1 || fields[2][0] !== RECORD_PREVIEW) return null;
     if (fields[3].length !== 32) return null;
     return {
-      collectionRef: bytesToHex(fields[3]),
+      collectionRef: bytesToHex2(fields[3]),
       mimeType: bytesToUtf8(fields[4]),
       previewBytes: fields[5]
     };
@@ -5417,10 +5453,10 @@
     view.setUint16(2, divisibility, true);
     view.setUint16(4, restrictions, true);
     view.setUint16(6, version, true);
-    return bytesToHex(Array.from(new Uint8Array(buf)));
+    return bytesToHex2(Array.from(new Uint8Array(buf)));
   }
   function decodeTokenRules(rulesHex) {
-    const bytes = hexToBytes(rulesHex);
+    const bytes = hexToBytes2(rulesHex);
     const view = new DataView(new Uint8Array(bytes).buffer);
     const supply = view.getUint16(0, true);
     const restrictions = view.getUint16(4, true);
@@ -5923,7 +5959,7 @@
     }
   };
   var clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
-  function hexToBytes2(hex) {
+  function hexToBytes3(hex) {
     const o = [];
     for (let i = 0; i < hex.length; i += 2) o.push(parseInt(hex.slice(i, i + 2), 16));
     return o;
@@ -5977,9 +6013,9 @@
     if (designIdx) flags |= FLAG_DESIGN_IDX;
     if (d == null) flags |= FLAG_DESIGN_EMBEDDED;
     const w = new W().u8(TAG).u8(c.version & 255).u8(flags);
-    propIdx ? w.u16(c.prop.index) : w.bytes(hexToBytes2(c.prop.tx));
+    propIdx ? w.u16(c.prop.index) : w.bytes(hexToBytes3(c.prop.tx));
     if (d != null) {
-      d.index != null ? w.u16(d.index) : w.bytes(hexToBytes2(d.tx));
+      d.index != null ? w.u16(d.index) : w.bytes(hexToBytes3(d.tx));
     }
     if (c.place) {
       w.u16(clamp(Math.round(c.place.x * 65535), 0, 65535)).u16(clamp(Math.round(c.place.y * 65535), 0, 65535)).u16(clamp(Math.round(c.place.scale * 1024), 0, 65535)).u8(clamp(Math.round((c.place.rot % 360 + 360) % 360 / 360 * 255), 0, 255)).i8(clamp(Math.round(c.place.skewX * 127), -127, 127)).i8(clamp(Math.round(c.place.skewY * 127), -127, 127)).u8(clamp(Math.round(c.place.fabric * 255), 0, 255));
@@ -6006,9 +6042,9 @@
       putBlock(w, PROP_FIELD.QUAD, qw.out());
     }
     if (p.warp && p.warp.length) putBlock(w, PROP_FIELD.WARP, packWarp(p.warp));
-    if (p.disp) putBlock(w, PROP_FIELD.DISP, [...hexToBytes2(p.disp.tx), clamp(Math.round(p.disp.str * 255), 0, 255)]);
-    if (p.mask) putBlock(w, PROP_FIELD.MASK, hexToBytes2(p.mask));
-    if (p.shade) putBlock(w, PROP_FIELD.SHADE, hexToBytes2(p.shade));
+    if (p.disp) putBlock(w, PROP_FIELD.DISP, [...hexToBytes3(p.disp.tx), clamp(Math.round(p.disp.str * 255), 0, 255)]);
+    if (p.mask) putBlock(w, PROP_FIELD.MASK, hexToBytes3(p.mask));
+    if (p.shade) putBlock(w, PROP_FIELD.SHADE, hexToBytes3(p.shade));
     if (p.dims) putBlock(w, PROP_FIELD.DIMS, new W().u16(p.dims.wmm).u16(p.dims.hmm).out());
     if (p.name) putBlock(w, PROP_FIELD.NAME, utf8ToBytes3(p.name));
     if (p.contour) putBlock(w, PROP_FIELD.CONTOUR, [clamp(Math.round(p.contour), 0, 255)]);
@@ -10249,31 +10285,6 @@
       aliasAt = backup.aliasAt ?? backup.savedAt;
     }
     return { alias, aliasAt, contacts: contacts2, contactsAt: contactsAt2, changed };
-  }
-
-  // src/tokenProtocol.ts
-  function hexToBytes3(hex) {
-    const bytes = [];
-    for (let i = 0; i < hex.length; i += 2) {
-      bytes.push(parseInt(hex.substring(i, i + 2), 16));
-    }
-    return bytes;
-  }
-  function bytesToHex2(bytes) {
-    return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  function doubleSha256(data) {
-    return sha256Bytes(sha256Bytes(data));
-  }
-  function verifyMerkleProof(entry) {
-    let current = hexToBytes3(entry.txId).reverse();
-    for (const node of entry.path) {
-      const sibling = hexToBytes3(node.hash).reverse();
-      const combined = node.position === "R" ? [...current, ...sibling] : [...sibling, ...current];
-      current = doubleSha256(combined);
-    }
-    const computedRoot = bytesToHex2(current.reverse());
-    return computedRoot === entry.merkleRoot;
   }
 
   // src/markerBackup.ts
@@ -15668,7 +15679,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"e48d02c"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"e378a73"} \xB7 ${"2026-11-16"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
