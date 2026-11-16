@@ -229,20 +229,24 @@ export async function scanIncoming(
   myPubKeyHex: string,
   /** Transactions to read whatever the history says: the wallet's marker backup. */
   extraTxIds: string[] = [],
+  /** Skip candidates confirmed at or below this height: read before, and held in the wallet's own record. */
+  opts: { sinceHeight?: number } = {},
 ): Promise<IncomingToken[]> {
   // Candidate txs: confirmed address history PLUS the txids of current UTXOs at our address.
   // The latter is mempool-aware (getUtxos includes unconfirmed), so the 1-sat notification
   // output of an incoming transfer surfaces the carrying tx immediately, before it confirms.
+  const since = opts.sinceHeight ?? -1
+  const readBefore = (h: number | undefined): boolean => since >= 0 && h != null && h > 0 && h <= since
   const candidateTxIds = new Set<string>(extraTxIds)
   const heightOf = new Map<string, number>()
   try {
     for (const { txId, blockHeight } of await provider.getFullAddressHistory()) {
-      candidateTxIds.add(txId)
       if (blockHeight > 0) heightOf.set(txId, blockHeight)
+      if (!readBefore(blockHeight)) candidateTxIds.add(txId)
     }
   } catch { /* history is best-effort */ }
   try {
-    for (const u of await provider.getUtxos()) candidateTxIds.add(u.txId)
+    for (const u of await provider.getUtxos()) if (!readBefore(u.height)) candidateTxIds.add(u.txId)
   } catch { /* utxos best-effort */ }
 
   const found: IncomingToken[] = []

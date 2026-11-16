@@ -46,7 +46,7 @@ import { cachedThumb, thumbResolved, cacheNoThumb, makeThumb, cachedMime, cacheM
 import { publishProfile, resolveProfile } from './profile.ts'
 import { readCorridor, postToNodeFeed, type CorridorNode, type DiscPost } from './discussion.ts'
 import { publishConfigBackup, resolveConfigBackup, mergeConfig } from './configBackup.ts'
-import { emptyMarkerBackup, updateMarkerBackup, parseMarkerBackup, mergeMarkerBackups, markerTxIds, markerBackupFileName, type MarkerBackup } from './markerBackup.ts'
+import { emptyMarkerBackup, updateMarkerBackup, parseMarkerBackup, mergeMarkerBackups, markerTxIds, markerBackupFileName, heldTransactions, type MarkerBackup } from './markerBackup.ts'
 import { unwrapContentKey, decryptContent } from './contentCrypto.ts'
 import { decompress } from './compress.ts'
 
@@ -150,7 +150,7 @@ function useKey(k: Signer): void {
   salesCache = null // the Sales scan belongs to the previous key
   renderWallet()
   markerBackup = loadMarkerBackup(address)
-  void refreshMarkerBackup()
+  provider.seedTransactions(heldTransactions(markerBackup)) // the wallet's own copies: never fetched again
 }
 
 /** Load a WATCH-ONLY wallet: holdings/balance/exports/broadcast by public key alone — no private key on
@@ -164,7 +164,7 @@ function useWatchKey(watchPubKeyHex: string): void {
   salesCache = null
   renderWallet()
   markerBackup = loadMarkerBackup(address)
-  void refreshMarkerBackup()
+  provider.seedTransactions(heldTransactions(markerBackup)) // the wallet's own copies: never fetched again
 }
 
 /** True when no private key is loaded (watch-only). */
@@ -190,14 +190,13 @@ function switchToWatch(watchPubKeyHex: string): void {
   useWatchKey(pub)
   renderTokens()
   void refreshBalance()
-  setStatus('Watch-only wallet loaded — recovering holdings from chain…')
-  void onCheckIncoming()
+  restoreTokens()
 }
 
 /**
  * Switch the active wallet. The local token store is a CACHE belonging to the previous wallet, so clear it
- * and (on a WIF restore) rebuild this wallet's holdings from chain — the WIF + chain are the source of
- * truth, so purchases recover on any device. A fresh random wallet has nothing to recover.
+ * and (on a restore) rebuild this wallet's holdings: from its token backup first, the chain only for what the
+ * backup does not hold. A fresh random wallet has nothing to recover.
  */
 function switchWallet(k: Signer, recover: boolean, mnemonic?: string): void {
   localStorage.setItem(WIF_KEY, k.toWif())
@@ -208,9 +207,9 @@ function switchWallet(k: Signer, recover: boolean, mnemonic?: string): void {
   useKey(k)
   renderTokens()
   void refreshBalance()
+  if (!recover) void refreshMarkerBackup()
   if (recover) {
-    setStatus('Wallet restored — recovering your purchases from chain…')
-    void onCheckIncoming()
+    restoreTokens()
     // Also pull your encrypted config backup (address book + alias + prefs) for this key, and merge it in.
     void restoreConfigFromChain(true).then(n => {
       if (n > 0) { renderContacts(); refreshNameSurfaces(); updateCfgBackupNote(); toast(`Restored ${n} contact${n > 1 ? 's' : ''} from your backup`) }
@@ -1690,15 +1689,39 @@ async function resolveCollectionName(tx1RefHex: string): Promise<string> {
   return name
 }
 
-async function onCheckIncoming(): Promise<void> {
-  setStatus('Scanning for incoming NFTs and editions…')
+/** The transactions the backup records whose tokens the wallet's list does not hold: read them even when old. */
+function backupTxIdsNotHeld(): string[] {
+  const held = new Set(store.list().map(t => `${t.txId}:${t.outputIndex}`))
+  return markerBackup.markers.filter(m => m.carries.some(c => !held.has(`${m.txId}:${c.outputIndex}`))).map(m => m.txId)
+}
+
+/** Edition scripts the wallet's list already holds, with their collection: the edition scan's starting point. */
+function heldEditionScripts(): Map<string, string> {
+  const scripts = new Map<string, string>()
+  for (const t of store.list()) if (t.kind === 'edition' && t.lockHex) scripts.set(t.lockHex, t.collectionId)
+  return scripts
+}
+
+/**
+ * Find new and moved tokens. LOCAL FIRST: when this wallet has a token backup, only transactions above its last
+ * block are read from the chain, plus any it records whose tokens are not in the list; every held edition is
+ * still checked for where it now is. `full` reads the whole history instead: the fallback with no backup.
+ */
+async function onCheckIncoming(opts: { full?: boolean } = {}): Promise<void> {
+  const localFirst = !opts.full && markerBackup.address === address && markerBackup.readToHeight > 0
+  const since = localFirst ? markerBackup.readToHeight - 1 : -1 // the top block read is read again
+  setStatus(localFirst ? `Checking for anything new since block ${markerBackup.readToHeight.toLocaleString()}…`
+    : 'Scanning the whole chain for your NFTs and editions…')
   let added = 0
   let edAdded = 0
   const errors: string[] = []
+  // Names the list already holds: no first transaction of a collection is fetched just to read its name.
+  for (const t of store.list()) if (t.collectionName && t.collectionName !== 'Edition' && !nameCache.has(t.collectionId)) nameCache.set(t.collectionId, t.collectionName)
+  const extra = localFirst ? backupTxIdsNotHeld() : markerTxIds(markerBackup)
 
   // Plain PushDrop tokens.
   try {
-    const incoming = await scanIncoming(provider, pubKeyHex, markerTxIds(markerBackup))
+    const incoming = await scanIncoming(provider, pubKeyHex, extra, localFirst ? { sinceHeight: since } : {})
     for (const t of incoming) {
       const tx = await provider.getSourceTransaction(t.txId)
       const v = await verifyTokenLineage(tx, t.outputIndex, { getRawTransaction: id => provider.getSourceTransaction(id) })
@@ -1711,7 +1734,8 @@ async function onCheckIncoming(): Promise<void> {
   // Edition covenant outputs (not address-indexed) — found via the transfer notification breadcrumb.
   // Run independently so a plain-scan failure can't block it.
   try {
-    const editions = await scanIncomingEditions(provider, pubKeyHex, undefined, markerTxIds(markerBackup))
+    const editions = await scanIncomingEditions(provider, pubKeyHex,
+      localFirst ? { scripts: heldEditionScripts(), sinceHeight: since } : undefined, extra)
     for (const e of editions) {
       const name = await resolveCollectionName(e.tx1RefHex)
       if (store.add({
@@ -1754,19 +1778,28 @@ function loadMarkerBackup(addr: string): MarkerBackup {
   return emptyMarkerBackup(addr)
 }
 
+/** The backup with the wallet's current token list, when the list belongs to that wallet. */
+function withTokenList(b: MarkerBackup): MarkerBackup {
+  return b.address === address ? { ...b, tokens: store.list().filter(t => t.status === 'active') } : b
+}
+
 function saveMarkerBackup(b: MarkerBackup): void {
-  try { localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(b)) } catch { /* blocked or full: the file still works */ }
+  try { localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(withTokenList(b))) } catch { /* blocked or full: the file still works */ }
 }
 
 function updateMarkerNote(text?: string): void {
   const el = document.getElementById('tokBackupNote'); if (el == null) return
   if (text != null) { el.textContent = text; return }
   const n = markerBackup.markers.length
+  const proved = markerBackup.markers.filter(m => m.proof != null).length
   const upTo = markerBackup.readToHeight > 0 ? `, read to block ${markerBackup.readToHeight.toLocaleString()}` : ''
-  el.textContent = `${n} transaction${n === 1 ? '' : 's'} recorded${upTo}.`
+  el.textContent = `${n} transaction${n === 1 ? '' : 's'} recorded (${proved} with a Merkle proof)${upTo}.`
 }
 
-/** Bring this wallet's token backup up to date. A wallet switched mid-run gets its own run straight after. */
+/**
+ * Bring this wallet's token backup up to date. The result is JOINED to the backup current when it finishes, so
+ * a file restored while it ran is kept. A wallet switched mid-run gets its own run straight after.
+ */
 async function refreshMarkerBackup(): Promise<void> {
   if (markerRefreshRunning) return
   markerRefreshRunning = true
@@ -1775,8 +1808,10 @@ async function refreshMarkerBackup(): Promise<void> {
   try {
     const prev = markerBackup.address === forAddress ? markerBackup : loadMarkerBackup(forAddress)
     const { backup } = await updateMarkerBackup(provider, forAddress, pubKeyHex, prev)
-    if (address === forAddress) { markerBackup = backup; updateMarkerNote() }
-    saveMarkerBackup(backup)
+    const current = markerBackup.address === forAddress ? markerBackup : loadMarkerBackup(forAddress)
+    const joined = mergeMarkerBackups(current, backup)
+    if (address === forAddress) { markerBackup = joined; updateMarkerNote() }
+    saveMarkerBackup(joined)
   } catch (e) {
     if (address === forAddress) updateMarkerNote(`Could not update (${(e as Error).message}); the saved record is unchanged.`)
   } finally {
@@ -1785,10 +1820,43 @@ async function refreshMarkerBackup(): Promise<void> {
   }
 }
 
+/** Set while a restore waits for the person to choose: a backup file, or a scan of the chain. */
+let restoreChoicePending = false
+
+/** After a restore: apply what this browser already holds for the wallet, or ask before reading the chain. */
+function restoreTokens(): void {
+  if (markerBackup.markers.length > 0 || markerBackup.tokens.length > 0) { void applyBackup(markerBackup, 'this browser'); return }
+  restoreChoicePending = true
+  setStatusHtml('Restore your tokens: <button id="btnRestoreFromFile" class="secondary">Choose backup file</button> ' +
+    '<button id="btnRestoreFromChain" class="secondary">Scan the chain</button> ' +
+    '<span class="muted">A backup file restores from what you saved; a scan of the chain reads your whole history.</span>')
+  $('btnRestoreFromFile').onclick = () => ($('tokBackupFile') as HTMLInputElement).click()
+  $('btnRestoreFromChain').onclick = () => { restoreChoicePending = false; void scanWholeChain() }
+}
+
+/** Put a backup's tokens and transactions in place, then read from the chain only what is newer. */
+async function applyBackup(b: MarkerBackup, from: string): Promise<void> {
+  provider.seedTransactions(heldTransactions(b))
+  let n = 0
+  for (const t of b.tokens) if (t.status === 'active' && store.add(t)) n++
+  renderTokens()
+  updateMarkerNote()
+  setStatus(`Restored ${n} token${n === 1 ? '' : 's'} from ${from}. Checking for anything newer…`)
+  await onCheckIncoming()
+  void refreshMarkerBackup()
+}
+
+/** The fallback with no backup: read the whole history, then record it. */
+async function scanWholeChain(): Promise<void> {
+  await onCheckIncoming({ full: true })
+  void refreshMarkerBackup()
+}
+
 function onTokenBackupSave(): void {
   if (markerBackup.address !== address) markerBackup = loadMarkerBackup(address)
-  downloadText(markerBackupFileName(address, getMyAlias()), JSON.stringify(markerBackup, null, 1), 'application/json')
-  setStatus(`Saved a token backup of ${markerBackup.markers.length} transactions. It holds no keys.`, 'ok')
+  const file = withTokenList(markerBackup)
+  downloadText(markerBackupFileName(address, getMyAlias()), JSON.stringify(file, null, 1), 'application/json')
+  setStatus(`Saved a token backup: ${file.tokens.length} tokens and ${file.markers.length} transactions. It holds no keys.`, 'ok')
 }
 
 async function onTokenBackupRestore(): Promise<void> {
@@ -1798,10 +1866,9 @@ async function onTokenBackupRestore(): Promise<void> {
     const file = parseMarkerBackup(text)
     const here = markerBackup.address === address ? markerBackup : loadMarkerBackup(address)
     markerBackup = mergeMarkerBackups(here, file)
+    restoreChoicePending = false
     saveMarkerBackup(markerBackup)
-    updateMarkerNote()
-    setStatus(`Read ${file.markers.length} transactions from the backup. Recovering your tokens…`)
-    await onCheckIncoming()
+    await applyBackup(markerBackup, 'the backup file')
   } catch (e) {
     setStatus(`Restore failed: ${(e as Error).message}`, 'error')
   }
@@ -4896,6 +4963,7 @@ function init(): void {
   const watch = localStorage.getItem(WATCH_KEY)
   if (watch != null) { try { useWatchKey(watch) } catch { localStorage.removeItem(WATCH_KEY); useKey(loadKey()) } }
   else useKey(loadKey())
+  void refreshMarkerBackup() // each use brings the token backup up to date, from the last block it read
   try { if (localStorage.getItem('p2:nftview') === 'grid') nftView = 'grid' } catch { /* default list */ }
   try { if (localStorage.getItem('p2:nftsort') === 'publisher') nftSort = 'publisher' } catch { /* default recent */ }
   updateViewToggle()
@@ -4960,6 +5028,9 @@ function init(): void {
   $('btnIncoming').onclick = () => void onCheckIncoming()
   $('btnTokBackupSave').onclick = () => onTokenBackupSave()
   $('btnTokBackupRestore').onclick = () => void onTokenBackupRestore()
+  $('btnTokFullScan').onclick = () => void scanWholeChain()
+  // A restore waiting on "Choose backup file" goes ahead as soon as one is chosen.
+  ;($('tokBackupFile') as HTMLInputElement).addEventListener('change', () => { if (restoreChoicePending) void onTokenBackupRestore() })
   $('btnSendMessage').onclick = () => void onSendMessage()
   $('btnCheckMessages').onclick = () => void onCheckMessages()
   $('msgTo').addEventListener('input', updateMsgToName)
@@ -4990,7 +5061,6 @@ function init(): void {
     switchWallet(k, true, phrase) // recover purchases from chain + keep the phrase
     markBackedUp() // they typed their own seed → it's already backed up
     ;($('restoreSeed') as HTMLInputElement).value = ''
-    setStatus('Wallet restored from seed phrase — recovering from chain…', 'ok')
   }
   $('btnWatchLoad').onclick = () => {
     const pk = val('watchPubKey')

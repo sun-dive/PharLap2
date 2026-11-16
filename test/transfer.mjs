@@ -107,6 +107,8 @@ for (const c of V.cases) {
   ok(incoming.length === 1 && incoming[0].txId === r.txId && incoming[0].outputIndex === r.recipientVout,
      '★★ scanIncoming surfaces the transfer from the recipient\'s address history')
   ok(incoming[0]?.height === 1, `★ …with the block height the history gives its transaction (${incoming[0]?.height})`)
+  ok((await TR.scanIncoming(provider, V.recipientPub, [], { sinceHeight: 1 })).length === 0, '★ a transaction at or below sinceHeight is skipped: read before')
+  ok((await TR.scanIncoming(provider, V.recipientPub, [r.txId], { sinceHeight: 1 })).length === 1, '★★ …unless the wallet\'s own record names it')
   ok((await TR.scanIncoming(provider, toHex(key.publicKey()))).length === 0, '★ …and nothing for the sender')
 }
 
