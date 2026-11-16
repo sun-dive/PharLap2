@@ -10260,6 +10260,12 @@
     }
     return { schema: MARKER_BACKUP_SCHEMA, address: a.address, readToHeight: Math.max(a.readToHeight, b.readToHeight), markers: [...byId.values()] };
   }
+  function markerBackupFileName(address2, handle = "", when = /* @__PURE__ */ new Date()) {
+    const safe = handle.replace(/^@+/, "").replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 40);
+    const two = (n) => String(n).padStart(2, "0");
+    const stamp = `${when.getFullYear()}-${two(when.getMonth() + 1)}-${two(when.getDate())}_${two(when.getHours())}${two(when.getMinutes())}`;
+    return `${safe === "" ? "" : safe + "-"}smartnfts-token-backup-${address2.slice(0, 8)}_${stamp}.json`;
+  }
   function markerTxIds(b) {
     return b.markers.map((m) => m.txId);
   }
@@ -12108,7 +12114,7 @@ It's posted to your own address and spends a small network fee. Proceed?`
   }
   function onTokenBackupSave() {
     if (markerBackup.address !== address) markerBackup = loadMarkerBackup(address);
-    downloadText(`smartnfts-token-backup-${address.slice(0, 8)}.json`, JSON.stringify(markerBackup, null, 1), "application/json");
+    downloadText(markerBackupFileName(address, getMyAlias()), JSON.stringify(markerBackup, null, 1), "application/json");
     setStatus(`Saved a token backup of ${markerBackup.markers.length} transactions. It holds no keys.`, "ok");
   }
   async function onTokenBackupRestore() {
@@ -15411,7 +15417,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"e4b0f9d"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"536c73f"} \xB7 ${"2026-11-16"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
