@@ -12063,7 +12063,8 @@ It's posted to your own address and spends a small network fee. Proceed?`
       return;
     }
     const n = markerBackup.markers.length;
-    el.textContent = markerBackup.readToHeight > 0 ? `${n} transaction${n === 1 ? "" : "s"} recorded, read to block ${markerBackup.readToHeight.toLocaleString()}.` : "Not read yet.";
+    const upTo = markerBackup.readToHeight > 0 ? `, read to block ${markerBackup.readToHeight.toLocaleString()}` : "";
+    el.textContent = `${n} transaction${n === 1 ? "" : "s"} recorded${upTo}.`;
   }
   async function refreshMarkerBackup() {
     if (markerRefreshRunning) return;
@@ -15390,7 +15391,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"679c3fa"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"86ba81a"} \xB7 ${"2026-11-16"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
