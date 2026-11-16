@@ -20,9 +20,14 @@ import { sha256Bytes } from './bytes.ts'
 // ─── Types ──────────────────────────────────────────────────────────
 
 export interface MerklePathNode {
+  /** The sibling hash, or `*`: the working hash paired with itself, as Bitcoin pairs the last hash of a level
+   *  that has an odd number of them. */
   hash: string
   position: 'L' | 'R'
 }
+
+/** The path step that pairs the working hash with itself (TSC's `*`). */
+export const SELF_PAIR = '*'
 
 export interface MerkleProofEntry {
   txId: string
@@ -135,6 +140,9 @@ export function verifyMerkleProof(entry: MerkleProofEntry): boolean {
   let current = hexToBytes(entry.txId).reverse()
 
   for (const node of entry.path) {
+    // ⚠ The last hash of a level with an odd count is paired with ITSELF. Skipping the step instead computes the
+    //   wrong root, and a correct proof for any transaction in that place fails (measured: 8 of 65).
+    if (node.hash === SELF_PAIR) { current = doubleSha256([...current, ...current]); continue }
     const sibling = hexToBytes(node.hash).reverse()
     const combined = node.position === 'R'
       ? [...current, ...sibling]

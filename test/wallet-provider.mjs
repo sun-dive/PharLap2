@@ -229,6 +229,61 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
   ok((await junk.p.getSpendingTx(A, 1)) === null, '★ a malformed answer is null, never a spend')
 }
 
+// ── ★★★ a Merkle proof with a `*` (a hash paired with itself) verifies ───────────────────────────────
+//
+// ⚠ Bitcoin pairs the last hash of a level that has an odd number of them with ITSELF, and a TSC proof marks
+//   that step `*`. Reading it as "no step" computes the wrong root: measured, every one of 8 real proofs with a
+//   `*` failed. The trees here are built in the test, so every index of an odd level is exercised.
+{
+  const TP = await (async () => {
+    const o = join(tmp, 'tokenProtocol.mjs')
+    await build({ entryPoints: [join(HERE, '..', 'src', 'tokenProtocol.ts')], bundle: true, outfile: o, platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+    return import(pathToFileURL(o).href)
+  })()
+  const { createHash } = await import('node:crypto')
+  const d2 = b => createHash('sha256').update(createHash('sha256').update(b).digest()).digest()
+  const disp = b => Buffer.from(b).reverse().toString('hex') // internal bytes → the reversed hex txids are shown in
+  const tree = n => { // leaves as display txids; every level up to the root, internal byte order
+    const leaves = Array.from({ length: n }, (_, i) => d2(Buffer.from(`leaf ${n} ${i}`)))
+    const levels = [leaves]
+    while (levels.at(-1).length > 1) {
+      const l = levels.at(-1), up = []
+      for (let i = 0; i < l.length; i += 2) up.push(d2(Buffer.concat([l[i], l[i + 1] ?? l[i]])))
+      levels.push(up)
+    }
+    return levels
+  }
+  const tsc = (levels, index) => { // a TSC proof: each level's sibling, or `*` where the node pairs with itself
+    const nodes = []; let i = index
+    for (let k = 0; k < levels.length - 1; k++) { const s = levels[k][i ^ 1]; nodes.push(s == null ? '*' : disp(s)); i >>= 1 }
+    return { index, nodes, target: disp(levels.at(-1)[0]) }
+  }
+  let all = 0, good = 0, starred = 0, tamperedCaught = 0
+  for (const n of [3, 5, 7, 11]) {
+    const levels = tree(n), root = disp(levels.at(-1)[0])
+    for (let index = 0; index < n; index++) {
+      const txId = disp(levels[0][index]), proof = tsc(levels, index)
+      if (proof.nodes.includes('*')) starred++
+      const { p } = wired(url => {
+        if (url.endsWith(`/tx/${txId}/proof/tsc`)) return resp(proof)
+        if (url.endsWith(`/api/v1/tx/${txId}`)) return resp({ block_hash: 'bb'.repeat(32) })
+        if (url.endsWith(`/block/${'bb'.repeat(32)}/header`)) return resp({ merkleroot: root, height: 900000 })
+        return resp(null, 404)
+      })
+      const entry = await p.getMerkleProof(txId)
+      all++; if (entry != null && TP.verifyMerkleProof(entry)) good++
+      if (entry != null && entry.path.length > 0) {
+        const bad = { ...entry, path: entry.path.map((s, k) => k === entry.path.length - 1 && s.hash !== '*' ? { ...s, hash: 'ee'.repeat(32) } : s) }
+        const flipped = bad.path.every((s, k) => s === entry.path[k]) ? { ...entry, merkleRoot: 'ee'.repeat(32) } : bad
+        if (!TP.verifyMerkleProof(flipped)) tamperedCaught++
+      }
+    }
+  }
+  ok(starred > 0, `the trees include proofs with a * (${starred} of ${all})`)
+  ok(good === all, `★★★ every proof from trees of 3, 5, 7 and 11 transactions verifies, a * included (${good} of ${all})`)
+  ok(tamperedCaught === all, `⛔ …and every one fails once a hash or its root is changed (${tamperedCaught} of ${all})`)
+}
+
 // ── ★★★ unspent outputs for many scripts: in bulk, and exactly where a bulk answer cannot be trusted ──
 //
 // ⚠ Measured: the bulk calls answer at most 20 outputs per script, and the confirmed one does not flag an

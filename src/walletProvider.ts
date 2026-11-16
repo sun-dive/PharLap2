@@ -14,6 +14,7 @@
  */
 import { Tx } from '../impl/js/transaction.mjs'
 import type { MerkleProofEntry, MerklePathNode, BlockHeader as SpvBlockHeader } from './tokenProtocol'
+import { SELF_PAIR } from './tokenProtocol'
 
 // Use local proxy on localhost to avoid CORS issues
 const WOC_BASE = (typeof location !== 'undefined' && location.hostname === 'localhost')
@@ -705,13 +706,13 @@ export class WalletProvider {
     return (await this.merkleProofBanana(txId)) ?? (await this.merkleProofWoC(txId))
   }
 
-  /** TSC `nodes` + tx `index` → L/R sibling path ('*' = duplicate-up, no sibling). Shared by both sources. */
+  /** TSC `nodes` + tx `index` → L/R sibling path. Shared by both sources. A `*` is kept as a step of its own:
+   *  the working hash paired with itself, not a step to skip. */
   private tscPath(nodes: string[], index: number): MerklePathNode[] {
     const path: MerklePathNode[] = []
     let idx = index
     for (const node of nodes) {
-      if (node === '*') { idx = idx >> 1; continue }
-      path.push({ hash: node, position: (idx % 2 === 0) ? 'R' : 'L' })
+      path.push({ hash: node === '*' ? SELF_PAIR : node, position: (idx % 2 === 0) ? 'R' : 'L' })
       idx = idx >> 1
     }
     return path
