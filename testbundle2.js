@@ -4137,6 +4137,8 @@
   var WOC_BASE = typeof location !== "undefined" && location.hostname === "localhost" ? "/woc/v1/bsv/main" : "https://api.whatsonchain.com/v1/bsv/main";
   var BANANA_BASE = typeof location !== "undefined" && location.hostname === "localhost" ? "/banana/api/v1" : "https://bananablocks.com/api/v1";
   var BANANA_WOC_BASE = typeof location !== "undefined" && location.hostname === "localhost" ? "/banana/api/v1/bsv/main" : "https://bananablocks.com/api/v1/bsv/main";
+  var BULK_SCRIPTS = 20;
+  var BULK_UNSPENT_CAP = 20;
   var CONFIRM_POLL_TRIES = 3;
   var CONFIRM_POLL_INTERVAL_MS = 15e3;
   var GATE_POLL_TRIES = 10;
@@ -4625,6 +4627,55 @@
       const resp = await fetchWithRetry(`${WOC_BASE}/script/${scriptHash}/unspent`);
       if (!resp.ok) throw new Error(`WoC script-unspent fetch failed: ${resp.status}`);
       return mapRows(await resp.json());
+    }
+    /**
+     * Unspent outputs for many scripts, 20 scripts to a request: WoC's bulk `/scripts/unspent` (confirmed) and
+     * `/scripts/unconfirmed/unspent`, answered in request order. A script is asked again with the exact single
+     * call above when its bulk answer cannot be trusted:
+     *   - 20 outputs: the bulk calls stop at 20 per script (measured: 20 for a script holding over 1,000);
+     *   - any unconfirmed output: the bulk confirmed answer does not flag an output already spent in the mempool;
+     *   - an error for that script, or a bulk request that failed or answered the wrong number of scripts.
+     * A script missing from the result could not be asked at all: the caller treats it as unknown, not empty.
+     */
+    async getUnspentByScriptHashes(scriptHashes) {
+      const out = /* @__PURE__ */ new Map();
+      const exact = [];
+      const rowsOf = (r) => Array.isArray(r?.unspent) ? r.unspent : Array.isArray(r?.result) ? r.result : [];
+      const post = async (path, body) => {
+        try {
+          const r = await fetchWithRetry(`${WOC_BASE}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+          const d = r.ok ? await r.json() : null;
+          return Array.isArray(d) ? d : null;
+        } catch {
+          return null;
+        }
+      };
+      for (let i = 0; i < scriptHashes.length; i += BULK_SCRIPTS) {
+        const chunk = scriptHashes.slice(i, i + BULK_SCRIPTS);
+        const body = JSON.stringify({ scripts: chunk });
+        const confirmed = await post("/scripts/unspent", body);
+        const pending = confirmed == null ? null : await post("/scripts/unconfirmed/unspent", body);
+        if (confirmed == null || pending == null || confirmed.length !== chunk.length || pending.length !== chunk.length) {
+          exact.push(...chunk);
+          continue;
+        }
+        chunk.forEach((h, k) => {
+          const c = confirmed[k], p = pending[k];
+          const rows = rowsOf(c);
+          if ((c?.error ?? "") !== "" || (p?.error ?? "") !== "" || rows.length >= BULK_UNSPENT_CAP || rowsOf(p).length > 0) {
+            exact.push(h);
+            return;
+          }
+          out.set(h, rows.map((u) => ({ txId: u.tx_hash, outputIndex: u.tx_pos, satoshis: u.value, script: "", height: u.height })));
+        });
+      }
+      for (const h of exact) {
+        try {
+          out.set(h, await this.getUnspentByScriptHash(h));
+        } catch {
+        }
+      }
+      return out;
     }
     /**
      * Mempool-aware txids touching an address, via `/unspent/all` (confirmed + unconfirmed outputs).
@@ -7082,6 +7133,7 @@
     const scripts = new Map(cache?.scripts ?? []);
     const since = cache?.sinceHeight ?? -1;
     const alwaysRead = new Set(extraTxIds);
+    const spentByRead = /* @__PURE__ */ new Set();
     for (const [txId, h] of cand) {
       if (!alwaysRead.has(txId) && since >= 0 && h > 0 && h <= since) continue;
       let tx;
@@ -7090,6 +7142,7 @@
       } catch {
         continue;
       }
+      for (const i of tx.inputs) spentByRead.add(`${wireToTxid(i.txid)}:${i.vout}`);
       for (const o of tx.outputs) {
         const ed = parseEditionScript(LockingScript.fromBinary(o.script));
         if (ed == null || ed.ownerPubKeyHex.toLowerCase() !== mine) continue;
@@ -7099,19 +7152,34 @@
     if (cache) for (const [k, v] of scripts) cache.scripts.set(k, v);
     const found = [];
     const seen = /* @__PURE__ */ new Set();
-    for (const [lockHex, tx1RefHex] of scripts) {
-      const lockBytes = hexBytes(lockHex);
-      let unspent;
+    const hashOf = new Map([...scripts.keys()].map((lockHex) => [lockHex, wocScriptHash(hexBytes(lockHex))]));
+    let bulk = null;
+    if (typeof provider2.getUnspentByScriptHashes === "function") {
       try {
-        unspent = await provider2.getUnspentByScriptHash(wocScriptHash(lockBytes));
+        bulk = await provider2.getUnspentByScriptHashes([...hashOf.values()]);
       } catch {
-        continue;
+        bulk = null;
+      }
+    }
+    for (const [lockHex, tx1RefHex] of scripts) {
+      const hash = hashOf.get(lockHex);
+      let unspent;
+      if (bulk != null) {
+        const u = bulk.get(hash);
+        if (u == null) continue;
+        unspent = u;
+      } else {
+        try {
+          unspent = await provider2.getUnspentByScriptHash(hash);
+        } catch {
+          continue;
+        }
       }
       const ed = parseEditionScript(LockingScript.fromHex(lockHex));
       if (ed == null) continue;
       for (const u of unspent) {
         const key2 = `${u.txId}:${u.outputIndex}`;
-        if (seen.has(key2)) continue;
+        if (seen.has(key2) || spentByRead.has(key2)) continue;
         seen.add(key2);
         let note = null;
         try {
@@ -9742,6 +9810,12 @@
   function cacheNoThumb(collectionId) {
     store(collectionId, NONE);
   }
+  var THUMB_URL = /^data:image\/(webp|png|jpeg|gif);base64,[A-Za-z0-9+/=]+$/;
+  function cacheThumbUrl(collectionId, url) {
+    if (!THUMB_URL.test(url)) return false;
+    store(collectionId, url);
+    return true;
+  }
   var MIME_PREFIX = "p:mime:";
   var NO_FILE = "\0";
   function cachedMime(collectionId) {
@@ -10322,12 +10396,24 @@
       markers.push(rec);
     }
     const tokens = Array.isArray(b.tokens) ? b.tokens.filter((t) => t != null && typeof t.txId === "string" && /^[0-9a-f]{64}$/.test(t.txId) && Number.isInteger(t.outputIndex) && typeof t.collectionId === "string") : [];
+    const cards = {};
+    if (b.cards != null && typeof b.cards === "object") {
+      for (const [id, c] of Object.entries(b.cards)) {
+        if (!/^[0-9a-f]{64}$/.test(id) || c == null || typeof c !== "object") continue;
+        cards[id] = {
+          mime: typeof c.mime === "string" && c.mime !== "" ? c.mime : null,
+          thumb: typeof c.thumb === "string" && THUMB_URL.test(c.thumb) ? c.thumb : null
+          // an image, or nothing
+        };
+      }
+    }
     return {
       schema: MARKER_BACKUP_SCHEMA,
       address: b.address,
       readToHeight: Number.isInteger(b.readToHeight) ? b.readToHeight : 0,
       markers,
-      tokens
+      tokens,
+      ...Object.keys(cards).length > 0 ? { cards } : {}
     };
   }
   function richer(a, b) {
@@ -10343,12 +10429,14 @@
     }
     const tokens = new Map((a.tokens ?? []).map((t) => [`${t.txId}:${t.outputIndex}`, t]));
     for (const t of b.tokens ?? []) if (!tokens.has(`${t.txId}:${t.outputIndex}`)) tokens.set(`${t.txId}:${t.outputIndex}`, t);
+    const cards = { ...b.cards ?? {}, ...a.cards ?? {} };
     return {
       schema: MARKER_BACKUP_SCHEMA,
       address: a.address,
       readToHeight: Math.max(a.readToHeight, b.readToHeight),
       markers: [...byId.values()],
-      tokens: [...tokens.values()]
+      tokens: [...tokens.values()],
+      ...Object.keys(cards).length > 0 ? { cards } : {}
     };
   }
   function markerBackupFileName(address2, handle = "", when = /* @__PURE__ */ new Date()) {
@@ -12189,9 +12277,28 @@ It's posted to your own address and spends a small network fee. Proceed?`
   function withTokenList(b) {
     return b.address === address ? { ...b, tokens: store2.list().filter((t) => t.status === "active") } : b;
   }
+  function forFile(b) {
+    const file = withTokenList(b);
+    const cards = {};
+    for (const t of file.tokens) {
+      const id = t.collectionId;
+      if (cards[id] != null) continue;
+      const mime = cachedMime(id);
+      if (mime === void 0 || !thumbResolved(id)) continue;
+      cards[id] = { mime, thumb: cachedThumb(id) };
+    }
+    return { ...file, cards };
+  }
+  function applyCards(cards) {
+    for (const [id, c] of Object.entries(cards ?? {})) {
+      if (cachedMime(id) === void 0) cacheMime(id, c.mime);
+      if (!thumbResolved(id) && (c.thumb == null || !cacheThumbUrl(id, c.thumb))) cacheNoThumb(id);
+    }
+  }
   function saveMarkerBackup(b) {
+    const { cards: _cards, ...local } = withTokenList(b);
     try {
-      localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(withTokenList(b)));
+      localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(local));
     } catch {
     }
   }
@@ -12244,6 +12351,7 @@ It's posted to your own address and spends a small network fee. Proceed?`
   async function applyBackup(b, from) {
     showRestoreChoice(false);
     provider.seedTransactions(heldTransactions(b));
+    applyCards(b.cards);
     let n = 0;
     for (const t of b.tokens) if (t.status === "active" && store2.add(t)) n++;
     renderTokens();
@@ -12258,9 +12366,9 @@ It's posted to your own address and spends a small network fee. Proceed?`
   }
   function onTokenBackupSave() {
     if (markerBackup.address !== address) markerBackup = loadMarkerBackup(address);
-    const file = withTokenList(markerBackup);
+    const file = forFile(markerBackup);
     downloadText(markerBackupFileName(address, getMyAlias()), JSON.stringify(file, null, 1), "application/json");
-    setStatus(`Saved a token backup: ${file.tokens.length} tokens and ${file.markers.length} transactions. It holds no keys.`, "ok");
+    setStatus(`Saved a token backup: ${file.tokens.length} tokens, ${file.markers.length} transactions and ${Object.keys(file.cards ?? {}).length} collections' card data. It holds no keys.`, "ok");
   }
   async function onTokenBackupRestore() {
     const text = await readFileText($("tokBackupFile"));
@@ -15560,7 +15668,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"9659104"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"e48d02c"} \xB7 ${"2026-11-16"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
