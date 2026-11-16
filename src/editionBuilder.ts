@@ -35,7 +35,7 @@ import { toHex, fromHex } from '../impl/js/bytes.mjs'
 import { hexBytes, hexOf, sha256Bytes, hash160Bytes, addressFromPubHex } from './bytes.ts'
 import { beBytes } from '../impl/js/bytes.mjs'
 import { scriptForAddress } from '../impl/js/address.mjs'
-import { Signer, txidToWire } from '../impl/js/signer.mjs'
+import { Signer, txidToWire, wireToTxid } from '../impl/js/signer.mjs'
 import {
   buildEditionLock, swapEditionOwner, editionOwnerPubKey, p2pkhScript, serializeOutput,
   editionReplicateUnlockChunks, editionTransferUnlockChunks, editionBurnUnlockChunks, EDITION_SCOPE, parseEditionScript,
@@ -1011,10 +1011,13 @@ export async function scanIncomingEditions(
   // ⚠ The history gives a height to every transaction it lists, the backup's included, so the watermark below
   //   would skip a backup transaction as "already discovered" when this list has never seen it.
   const alwaysRead = new Set(extraTxIds)
+  // Every output a transaction read here spends: never a live holding, whatever an unspent list says.
+  const spentByRead = new Set<string>()
   for (const [txId, h] of cand) {
     if (!alwaysRead.has(txId) && since >= 0 && h > 0 && h <= since) continue // confirmed at/below the watermark — already discovered
     let tx: Tx
     try { tx = await provider.getSourceTransaction(txId) } catch { continue }
+    for (const i of tx.inputs) spentByRead.add(`${wireToTxid(i.txid)}:${i.vout}`)
     for (const o of tx.outputs) {
       const ed = parseEditionScript(LockingScript.fromBinary(o.script))
       if (ed == null || ed.ownerPubKeyHex.toLowerCase() !== mine) continue
@@ -1024,17 +1027,25 @@ export async function scanIncomingEditions(
   if (cache) for (const [k, v] of scripts) cache.scripts.set(k, v) // persist merged discoveries
 
   // Pass 2 — for each distinct script, the current UNSPENT outputs are the live holdings (mempool-aware).
+  // Asked in bulk when the provider can, 20 scripts to a request; it re-asks one at a time wherever a bulk
+  // answer may be cut short or may still list an output spent in the mempool.
   const found: IncomingEdition[] = []
   const seen = new Set<string>()
+  const hashOf = new Map([...scripts.keys()].map(lockHex => [lockHex, wocScriptHash(hexBytes(lockHex))]))
+  let bulk: Map<string, Utxo[]> | null = null
+  if (typeof provider.getUnspentByScriptHashes === 'function') {
+    try { bulk = await provider.getUnspentByScriptHashes([...hashOf.values()]) } catch { bulk = null }
+  }
   for (const [lockHex, tx1RefHex] of scripts) {
-    const lockBytes = hexBytes(lockHex)
+    const hash = hashOf.get(lockHex) as string
     let unspent: Utxo[]
-    try { unspent = await provider.getUnspentByScriptHash(wocScriptHash(lockBytes)) } catch { continue }
+    if (bulk != null) { const u = bulk.get(hash); if (u == null) continue; unspent = u }
+    else { try { unspent = await provider.getUnspentByScriptHash(hash) } catch { continue } }
     const ed = parseEditionScript(LockingScript.fromHex(lockHex))
     if (ed == null) continue
     for (const u of unspent) {
       const key = `${u.txId}:${u.outputIndex}`
-      if (seen.has(key)) continue
+      if (seen.has(key) || spentByRead.has(key)) continue
       seen.add(key)
       let note: SellerNote | null = null
       try { note = readNoteFromTx(await provider.getSourceTransaction(u.txId), tx1RefHex) } catch { /* best-effort */ }

@@ -229,6 +229,50 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
   ok((await junk.p.getSpendingTx(A, 1)) === null, '★ a malformed answer is null, never a spend')
 }
 
+// ── ★★★ unspent outputs for many scripts: in bulk, and exactly where a bulk answer cannot be trusted ──
+//
+// ⚠ Measured: the bulk calls answer at most 20 outputs per script, and the confirmed one does not flag an
+//   output already spent in the mempool. Either would make a holding look present that is not, or absent.
+{
+  const GAP = 3131
+  const H = Array.from({ length: 25 }, (_, i) => i.toString(16).padStart(2, '0').repeat(32))
+  const row = (n, extra = {}) => ({ tx_hash: 'ab'.repeat(32), tx_pos: n, value: 100, height: 900000 + n, ...extra })
+  const CAPPED = H[3], PENDING = H[5], FAILING = H[7]
+  const singles = []
+  const { p, calls, slept } = wired((url, init) => {
+    if (url.endsWith('/scripts/unspent') || url.endsWith('/scripts/unconfirmed/unspent')) {
+      const asked = JSON.parse(init.body).scripts
+      const pending = url.includes('unconfirmed')
+      return resp(asked.map(h => pending
+        ? { script: h, result: h === PENDING ? [row(9)] : [], error: '' }
+        : { address: '', unspent: h === CAPPED ? Array.from({ length: 20 }, (_, n) => row(n)) : [row(1)], error: h === FAILING ? 'boom' : '' }))
+    }
+    const m = url.match(/\/script\/([0-9a-f]{64})\/unspent\/all$/)
+    if (m) { singles.push(m[1]); return resp({ result: [row(2), row(3, { isSpentInMempoolTx: true })] }) }
+    return resp(null, 404)
+  }, { gap: GAP })
+  const got = await p.getUnspentByScriptHashes(H)
+  const posts = calls.filter(([, i]) => i?.method === 'POST')
+  ok(posts.length === 4, `★★★ 25 scripts take 2 bulk requests of each kind, 20 scripts at a time (${posts.length})`)
+  ok(singles.length === 3 && [CAPPED, PENDING, FAILING].every(h => singles.includes(h)),
+     `★★★ only the capped, the pending and the failing script are asked one at a time (${singles.length})`)
+  ok(got.size === 25, '★ every script has an answer')
+  const plain = got.get(H[0])
+  ok(plain?.length === 1 && plain[0].txId === 'ab'.repeat(32) && plain[0].outputIndex === 1 && plain[0].height === 900001, '★★ a bulk row maps to an outpoint, value and height')
+  ok(got.get(CAPPED)?.length === 1, '★★ a capped script gets the exact answer, which drops an output spent in the mempool')
+  ok(slept.filter(x => x === GAP).length === calls.length, `★★★ every one of the ${calls.length} requests went through the queue`)
+}
+{
+  const singles = []
+  const { p } = wired(url => {
+    if (url.includes('/scripts/')) return resp('', 500)
+    if (/\/script\/[0-9a-f]{64}\/unspent\/all$/.test(url)) { singles.push(url); return resp({ result: [] }) }
+    return resp(null, 404)
+  })
+  const got = await p.getUnspentByScriptHashes(['aa'.repeat(32), 'bb'.repeat(32)])
+  ok(got.size === 2 && singles.length === 2, '⛔ a bulk request that fails falls back to the exact call for its scripts')
+}
+
 // ── ★★ a transaction the wallet holds is served without asking the network ──────────────────────────
 {
   const { p, calls } = wired(() => resp(null, 500))

@@ -232,6 +232,21 @@ let afterFirst
   const held = await EB.scanIncomingEditions(old, HOLDER.pub, { scripts: new Map([[toHex(genesis.tx.outputs[ev].script), TX1]]), sinceHeight: 100 }, [])
   ok(held.some(f => f.txId === genesis.txId && f.outputIndex === ev), '★★ an edition the list holds is found where it now is, from its script')
   ok(read.filter(id => id === genesis.txId).length <= 1, `★ …the old transaction read at most once, for its note (${read.length})`)
+  // ⚠ an unspent list that has not caught up: it still lists the genesis outpoint the replication spends
+  const stale = { ...blind,
+    async getFullAddressHistory() { return [{ txId: genesis.txId, blockHeight: 100 }, { txId: rep.txId, blockHeight: 0 }] },
+    async getSourceTransaction(id) { return id === rep.txId ? rep.tx : blind.getSourceTransaction(id) },
+    async getUnspentByScriptHash() { return [{ txId: genesis.txId, outputIndex: ev, satoshis: 1, height: 100 }, { txId: rep.txId, outputIndex: rep.holderTokenVout, satoshis: 1, height: 0 }] } }
+  const live = await EB.scanIncomingEditions(stale, HOLDER.pub)
+  ok(!live.some(f => f.txId === genesis.txId) && live.some(f => f.txId === rep.txId && f.outputIndex === rep.holderTokenVout),
+     '★★★ an outpoint spent by a transaction the scan read is never a holding, whatever the unspent list says')
+  // ★ the bulk call is used when the provider has it, and the one-at-a-time call is not
+  let one = 0, many = 0
+  const bulky = { ...old,
+    async getUnspentByScriptHash() { one++; return [] },
+    async getUnspentByScriptHashes(hashes) { many++; return new Map(hashes.map(h => [h, [{ txId: genesis.txId, outputIndex: ev, satoshis: 1, height: 100 }]])) } }
+  const viaBulk = await EB.scanIncomingEditions(bulky, HOLDER.pub, { scripts: new Map([[toHex(genesis.tx.outputs[ev].script), TX1]]), sinceHeight: 100 }, [])
+  ok(many === 1 && one === 0 && viaBulk.some(f => f.txId === genesis.txId), `★★ every edition is checked in one bulk call (${many} bulk, ${one} single)`)
   // a restore from a file: the list is empty, the history names the transaction as already read, and only
   // the backup says to read it. ⚠ It must be read: a height from the history must not turn it into a skip.
   const restored = await EB.scanIncomingEditions(old, HOLDER.pub, { scripts: new Map(), sinceHeight: 100 }, [genesis.txId])

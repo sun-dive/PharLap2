@@ -35,6 +35,10 @@ const BANANA_WOC_BASE = (typeof location !== 'undefined' && location.hostname ==
   ? '/banana/api/v1/bsv/main'
   : 'https://bananablocks.com/api/v1/bsv/main'
 
+// WoC's bulk unspent calls: scripts per request, and the most outputs they answer for one script.
+export const BULK_SCRIPTS = 20
+export const BULK_UNSPENT_CAP = 20
+
 // Orphan-guard poll: after a relay accepts, re-check the tx is actually visible; if it vanishes, re-broadcast.
 export const CONFIRM_POLL_TRIES = 3
 export const CONFIRM_POLL_INTERVAL_MS = 15_000
@@ -633,6 +637,45 @@ export class WalletProvider {
     const resp = await fetchWithRetry(`${WOC_BASE}/script/${scriptHash}/unspent`)
     if (!resp.ok) throw new Error(`WoC script-unspent fetch failed: ${resp.status}`)
     return mapRows(await resp.json())
+  }
+
+  /**
+   * Unspent outputs for many scripts, 20 scripts to a request: WoC's bulk `/scripts/unspent` (confirmed) and
+   * `/scripts/unconfirmed/unspent`, answered in request order. A script is asked again with the exact single
+   * call above when its bulk answer cannot be trusted:
+   *   - 20 outputs: the bulk calls stop at 20 per script (measured: 20 for a script holding over 1,000);
+   *   - any unconfirmed output: the bulk confirmed answer does not flag an output already spent in the mempool;
+   *   - an error for that script, or a bulk request that failed or answered the wrong number of scripts.
+   * A script missing from the result could not be asked at all: the caller treats it as unknown, not empty.
+   */
+  async getUnspentByScriptHashes(scriptHashes: string[]): Promise<Map<string, Utxo[]>> {
+    const out = new Map<string, Utxo[]>()
+    const exact: string[] = []
+    const rowsOf = (r: any): any[] => Array.isArray(r?.unspent) ? r.unspent : Array.isArray(r?.result) ? r.result : []
+    const post = async (path: string, body: string): Promise<any[] | null> => {
+      try {
+        const r = await fetchWithRetry(`${WOC_BASE}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+        const d = r.ok ? await r.json() : null
+        return Array.isArray(d) ? d : null
+      } catch { return null }
+    }
+    for (let i = 0; i < scriptHashes.length; i += BULK_SCRIPTS) {
+      const chunk = scriptHashes.slice(i, i + BULK_SCRIPTS)
+      const body = JSON.stringify({ scripts: chunk })
+      const confirmed = await post('/scripts/unspent', body)
+      const pending = confirmed == null ? null : await post('/scripts/unconfirmed/unspent', body)
+      if (confirmed == null || pending == null || confirmed.length !== chunk.length || pending.length !== chunk.length) {
+        exact.push(...chunk); continue
+      }
+      chunk.forEach((h, k) => {
+        const c = confirmed[k], p = pending[k]
+        const rows = rowsOf(c)
+        if ((c?.error ?? '') !== '' || (p?.error ?? '') !== '' || rows.length >= BULK_UNSPENT_CAP || rowsOf(p).length > 0) { exact.push(h); return }
+        out.set(h, rows.map((u: any) => ({ txId: u.tx_hash as string, outputIndex: u.tx_pos as number, satoshis: u.value as number, script: '', height: u.height as number })))
+      })
+    }
+    for (const h of exact) { try { out.set(h, await this.getUnspentByScriptHash(h)) } catch { /* unknown: left out */ } }
+    return out
   }
 
   /**
