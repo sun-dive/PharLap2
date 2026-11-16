@@ -1823,19 +1823,24 @@ async function refreshMarkerBackup(): Promise<void> {
 /** Set while a restore waits for the person to choose: a backup file, or reading the wallet's whole history. */
 let restoreChoicePending = false
 
+/**
+ * The choice has its OWN line under the status line. ⚠ In the status line itself, the next message (the
+ * balance check's "Balance updated.") replaced it within seconds, before anyone could choose.
+ */
+function showRestoreChoice(on: boolean): void {
+  restoreChoicePending = on
+  $('restoreChoice').style.display = on ? '' : 'none'
+}
+
 /** After a restore: apply what this browser already holds for the wallet, or ask before reading its history. */
 function restoreTokens(): void {
   if (markerBackup.markers.length > 0 || markerBackup.tokens.length > 0) { void applyBackup(markerBackup, 'this browser'); return }
-  restoreChoicePending = true
-  setStatusHtml('Restore your tokens: <button id="btnRestoreFromFile" class="secondary">Choose backup file</button> ' +
-    '<button id="btnRestoreFromHistory" class="secondary">Read wallet history</button> ' +
-    '<span class="muted">A backup file restores from what you saved; reading your wallet\'s whole history takes longer.</span>')
-  $('btnRestoreFromFile').onclick = () => ($('tokBackupFile') as HTMLInputElement).click()
-  $('btnRestoreFromHistory').onclick = () => { restoreChoicePending = false; void rescanWalletHistory() }
+  showRestoreChoice(true)
 }
 
 /** Put a backup's tokens and transactions in place, then read from the wallet's history only what is newer. */
 async function applyBackup(b: MarkerBackup, from: string): Promise<void> {
+  showRestoreChoice(false)
   provider.seedTransactions(heldTransactions(b))
   let n = 0
   for (const t of b.tokens) if (t.status === 'active' && store.add(t)) n++
@@ -1866,7 +1871,6 @@ async function onTokenBackupRestore(): Promise<void> {
     const file = parseMarkerBackup(text)
     const here = markerBackup.address === address ? markerBackup : loadMarkerBackup(address)
     markerBackup = mergeMarkerBackups(here, file)
-    restoreChoicePending = false
     saveMarkerBackup(markerBackup)
     await applyBackup(markerBackup, 'the backup file')
   } catch (e) {
@@ -5029,6 +5033,8 @@ function init(): void {
   $('btnTokBackupSave').onclick = () => onTokenBackupSave()
   $('btnTokBackupRestore').onclick = () => void onTokenBackupRestore()
   $('btnTokRescan').onclick = () => void rescanWalletHistory()
+  $('btnRestoreFromFile').onclick = () => ($('tokBackupFile') as HTMLInputElement).click()
+  $('btnRestoreFromHistory').onclick = () => { showRestoreChoice(false); void rescanWalletHistory() }
   // A restore waiting on "Choose backup file" goes ahead as soon as one is chosen.
   ;($('tokBackupFile') as HTMLInputElement).addEventListener('change', () => { if (restoreChoicePending) void onTokenBackupRestore() })
   $('btnSendMessage').onclick = () => void onSendMessage()

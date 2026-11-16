@@ -480,6 +480,12 @@
     <h1>SMART NFTs <small>powered by <span title="Peer-to-peer · Hashing · Algorithm · Replication · Ledger · Authentication · Protocol">PHAR LAP</span></small></h1>
 
     <div id="status" class="status">Loading…</div>
+    <div id="restoreChoice" class="status info" style="display:none">
+      Restore your tokens:
+      <button id="btnRestoreFromFile" class="secondary">Choose backup file</button>
+      <button id="btnRestoreFromHistory" class="secondary">Read wallet history</button>
+      <span class="muted">A backup file restores from what you saved; reading your wallet's whole history takes longer.</span>
+    </div>
 
     <nav class="tabs" role="tablist" aria-label="Wallet sections">
       <button class="tab is-active" data-tab="home" role="tab">Home</button>
