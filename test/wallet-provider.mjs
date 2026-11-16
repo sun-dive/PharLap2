@@ -229,6 +229,13 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
   ok((await junk.p.getSpendingTx(A, 1)) === null, '★ a malformed answer is null, never a spend')
 }
 
+// ── ★★ a transaction the wallet holds is served without asking the network ──────────────────────────
+{
+  const { p, calls } = wired(() => resp(null, 500))
+  p.seedTransactions([{ txId: TX.txid, rawHex: TX.hex }])
+  ok(await p.getRawTransaction(TX.txid) === TX.hex && calls.length === 0, '★★ a held transaction is served with no request at all')
+}
+
 // ── ★★★ the full history: every page, through the queue ─────────────────────────────────────────────
 //
 // ⚠ `/history` answers only the newest 100, so a token whose marker was spent and whose transaction is

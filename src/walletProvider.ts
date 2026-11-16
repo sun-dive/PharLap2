@@ -385,6 +385,14 @@ export class WalletProvider {
   private rawInFlight = new Map<string, Promise<string>>()
   private parsedInFlight = new Map<string, Promise<Tx>>()
 
+  /**
+   * Serve these transactions from memory from now on, without a network request. The caller vouches that
+   * each hex hashes to its txid; one already held is left as it is.
+   */
+  seedTransactions(entries: Array<{ txId: string; rawHex: string }>): void {
+    for (const e of entries) if (!this.txCache.has(e.txId)) this.txCache.set(e.txId, e.rawHex)
+  }
+
   async getRawTransaction(txId: string): Promise<string> {
     const cached = this.txCache.get(txId)
     if (cached) return cached

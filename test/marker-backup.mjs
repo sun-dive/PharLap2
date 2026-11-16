@@ -68,12 +68,13 @@ const pay = new Tx(1, [{ txid: new Uint8Array(32).fill(9), vout: 0, script: new 
   ok(p.markerVouts.length === 0 && p.carries.length === 0, '⛔ a payment of 2 or 5,000 sat is not a marker')
 }
 
-// ── a fake network: the full history, and transactions that can be made to fail ────────────────────
-function net(entries, { failing = new Set(), historyFails = false } = {}) {
+// ── a fake network: the full history, transactions that can be made to fail, and Merkle proofs ──────
+// A proof for a block holding one transaction: no path, and the root is the txid itself.
+function net(entries, { failing = new Set(), historyFails = false, proofs = 'good' } = {}) {
   const byId = new Map(entries.map(e => [e.tx.txid(), e.tx]))
-  const fetched = []
+  const fetched = [], proofAsked = []
   return {
-    fetched,
+    fetched, proofAsked,
     async getFullAddressHistory() {
       if (historyFails) throw new Error('WoC confirmed history fetch failed: 500')
       return entries.map(e => ({ txId: e.tx.txid(), blockHeight: e.h }))
@@ -82,6 +83,12 @@ function net(entries, { failing = new Set(), historyFails = false } = {}) {
       fetched.push(id)
       if (failing.has(id)) throw new Error('fetch failed')
       const t = byId.get(id); if (!t) throw new Error(`no tx ${id}`); return t
+    },
+    async getMerkleProof(id) {
+      proofAsked.push(id)
+      const e = entries.find(x => x.tx.txid() === id)
+      if (proofs === 'none' || e == null || e.h === 0) return null
+      return { txId: id, blockHeight: e.h, merkleRoot: proofs === 'bad' ? 'ff'.repeat(32) : id, path: [] }
     },
   }
 }
@@ -105,6 +112,32 @@ let afterFirst
   ok(p.fetched.includes(later.txId) && added === 1, '★★★ the new replication is read and recorded')
   ok(p.fetched.includes(pay.txid()), '★ the top block already read is read again, in case it was not complete')
   ok(backup.markers.length === 3 && backup.readToHeight === 105, `★ three recorded, read to block 105 (${backup.markers.length}, ${backup.readToHeight})`)
+}
+
+// ── ★★★ 2b · each record keeps its whole transaction and, once confirmed, its Merkle proof ───────────
+{
+  const rec = afterFirst.markers.find(m => m.txId === rep.txId)
+  ok(rec?.rawHex === rep.tx.hex(), '★★★ the whole transaction is kept')
+  ok(rec?.proof?.merkleRoot === rep.txId && rec?.proof?.blockHeight === 101, '★★★ …and its Merkle proof')
+  const p = net([{ tx: genesis.tx, h: 100 }, { tx: rep.tx, h: 101 }, { tx: pay, h: 101 }])
+  await MB.updateMarkerBackup(p, HOLDER.address, HOLDER.pub, afterFirst)
+  ok(p.proofAsked.length === 0, `★★ a proof already held is never asked for again (${p.proofAsked.length})`)
+  const u = net([{ tx: later.tx, h: 0 }])
+  const r = await MB.updateMarkerBackup(u, HOLDER.address, HOLDER.pub, MB.emptyMarkerBackup(HOLDER.address))
+  ok(u.proofAsked.length === 0 && r.backup.markers[0]?.proof === undefined, '★ an unconfirmed transaction has no proof to ask for yet')
+  const bad = net([{ tx: rep.tx, h: 101 }], { proofs: 'bad' })
+  const rb = await MB.updateMarkerBackup(bad, HOLDER.address, HOLDER.pub, MB.emptyMarkerBackup(HOLDER.address))
+  ok(rb.backup.markers[0]?.proof === undefined && rb.proved === 0, '⛔ a proof whose path does not reach its root is not kept')
+}
+// ── ★★ a format 1 backup (no transactions, no proofs) reads, and is filled in once ──────────────────
+{
+  const v1 = { schema: 1, address: HOLDER.address, readToHeight: 102,
+    markers: [{ txId: rep.txId, markerVouts: [3], carries: [{ outputIndex: rep.holderTokenVout, kind: 'edition', collectionId: TX1 }], height: 101 }] }
+  const parsed = MB.parseMarkerBackup(JSON.stringify(v1))
+  ok(parsed.schema === 2 && parsed.tokens.length === 0 && parsed.markers[0].rawHex === undefined, '★★ a format 1 file reads, as format 2 with no transactions, proofs or tokens')
+  const p = net([{ tx: rep.tx, h: 101 }])
+  const { backup } = await MB.updateMarkerBackup(p, HOLDER.address, HOLDER.pub, parsed)
+  ok(backup.markers[0].rawHex === rep.tx.hex() && backup.markers[0].proof != null, '★★ …and the next update fills in its transaction and its proof')
 }
 
 // ── ⛔ a transaction that cannot be fetched holds the height read, so it is tried again ──────────────
@@ -134,6 +167,30 @@ let afterFirst
   const joined = MB.mergeMarkerBackups(afterFirst, other)
   ok(joined.markers.length === 3 && joined.readToHeight === 200, '★★ two backups of one wallet join: every transaction in either, the higher height read')
   ok(throws(() => MB.mergeMarkerBackups(afterFirst, MB.emptyMarkerBackup(stranger.address())), 'different wallet'), '⛔ a backup of another wallet is refused')
+}
+// ── ⛔ what a file claims is checked, not trusted ───────────────────────────────────────────────────
+{
+  const f = JSON.parse(JSON.stringify(afterFirst))
+  const r = f.markers.find(m => m.txId === rep.txId)
+  r.rawHex = genesis.tx.hex() // another transaction's bytes
+  r.proof = { ...r.proof, merkleRoot: 'ee'.repeat(32) }
+  const back = MB.parseMarkerBackup(JSON.stringify(f))
+  const br = back.markers.find(m => m.txId === rep.txId)
+  ok(br.rawHex === undefined, '⛔ bytes that do not hash to their txid are dropped, not trusted')
+  ok(br.proof === undefined, '⛔ a proof that does not reach its root is dropped')
+  ok(back.markers.find(m => m.txId === genesis.txId)?.rawHex === genesis.tx.hex(), '★ …while the records that check out are kept whole')
+}
+// ── ★★ joining keeps the most either copy holds; the provider is offered every whole transaction ────
+{
+  const bare = MB.parseMarkerBackup(JSON.stringify({ schema: 1, address: HOLDER.address, readToHeight: 300,
+    markers: afterFirst.markers.map(m => ({ txId: m.txId, markerVouts: m.markerVouts, carries: m.carries, height: m.height })) }))
+  const j = MB.mergeMarkerBackups(bare, afterFirst)
+  ok(j.markers.every(m => m.rawHex && m.proof) && j.readToHeight === 300, '★★ joining keeps each transaction and proof, whichever copy held it')
+  const token = { txId: genesis.txId, outputIndex: ev, collectionId: TX1, stateData: '', status: 'active', addedAt: '2026-06-01T00:00:00.000Z', kind: 'edition' }
+  const withList = MB.parseMarkerBackup(JSON.stringify({ ...afterFirst, tokens: [token, { txId: 'bad' }] }))
+  ok(withList.tokens.length === 1 && withList.tokens[0].addedAt === token.addedAt, '★★ the token list reads back, a malformed entry dropped')
+  ok(MB.mergeMarkerBackups(MB.emptyMarkerBackup(HOLDER.address), withList).tokens.length === 1, '★ …and survives a join')
+  ok(MB.heldTransactions(afterFirst).length === afterFirst.markers.length, '★ every transaction held whole is offered to the provider')
 }
 
 // ── ★ the file is named after the wallet's handle ───────────────────────────────────────────────────
@@ -168,6 +225,13 @@ let afterFirst
   ok((await EB.scanIncomingEditions(blind, HOLDER.pub)).length === 0, '⚠ with no history and no marker left, the scan alone finds nothing')
   const found = await EB.scanIncomingEditions(blind, HOLDER.pub, undefined, MB.markerTxIds(afterFirst))
   ok(found.some(f => f.txId === genesis.txId && f.outputIndex === ev), '★★★ given the backup, the same scan finds the edition')
+  // local first: the list already holds the edition's script, and the history only has what was read before
+  const read = []
+  const old = { ...blind, async getFullAddressHistory() { return [{ txId: genesis.txId, blockHeight: 100 }] },
+    async getSourceTransaction(id) { read.push(id); return blind.getSourceTransaction(id) } }
+  const held = await EB.scanIncomingEditions(old, HOLDER.pub, { scripts: new Map([[toHex(genesis.tx.outputs[ev].script), TX1]]), sinceHeight: 100 }, [])
+  ok(held.some(f => f.txId === genesis.txId && f.outputIndex === ev), '★★ an edition the list holds is found where it now is, from its script')
+  ok(read.filter(id => id === genesis.txId).length <= 1, `★ …the old transaction read at most once, for its note (${read.length})`)
 }
 
 rmSync(tmp, { recursive: true, force: true })
