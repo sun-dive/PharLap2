@@ -997,11 +997,13 @@ export async function scanIncomingEditions(
    *  watermark are always re-scanned, so a fresh onboard is never missed. `scripts` is mutated with new discoveries
    *  for the caller to persist. Pass 2 (below) still runs over ALL scripts every time, so live holdings stay exact. */
   cache?: { scripts: Map<string, string>; sinceHeight: number },
+  /** Transactions to read whatever the history says: the wallet's marker backup. Height unknown, so never skipped. */
+  extraTxIds: string[] = [],
 ): Promise<IncomingEdition[]> {
   const mine = pubKeyHex.toLowerCase()
 
   // Pass 1 — discover distinct edition scripts (lockHex) this pubkey holds/held, from address breadcrumbs.
-  const cand = new Map<string, number>() // txId -> height (0 = unconfirmed/unknown)
+  const cand = new Map<string, number>(extraTxIds.map(id => [id, 0])) // txId -> height (0 = unconfirmed/unknown)
   try { for (const e of await provider.getFullAddressHistory()) cand.set(e.txId, e.blockHeight || 0) } catch { /* best-effort */ }
   try { for (const u of await provider.getUtxos()) if (!cand.has(u.txId)) cand.set(u.txId, u.height || 0) } catch { /* best-effort */ }
   const scripts = new Map<string, string>(cache?.scripts ?? []) // lockHex -> tx1RefHex (seeded from cache)

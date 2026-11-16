@@ -46,6 +46,7 @@ import { cachedThumb, thumbResolved, cacheNoThumb, makeThumb, cachedMime, cacheM
 import { publishProfile, resolveProfile } from './profile.ts'
 import { readCorridor, postToNodeFeed, type CorridorNode, type DiscPost } from './discussion.ts'
 import { publishConfigBackup, resolveConfigBackup, mergeConfig } from './configBackup.ts'
+import { emptyMarkerBackup, updateMarkerBackup, parseMarkerBackup, mergeMarkerBackups, markerTxIds, type MarkerBackup } from './markerBackup.ts'
 import { unwrapContentKey, decryptContent } from './contentCrypto.ts'
 import { decompress } from './compress.ts'
 
@@ -148,6 +149,8 @@ function useKey(k: Signer): void {
   provider = new WalletProvider(address)
   salesCache = null // the Sales scan belongs to the previous key
   renderWallet()
+  markerBackup = loadMarkerBackup(address)
+  void refreshMarkerBackup()
 }
 
 /** Load a WATCH-ONLY wallet: holdings/balance/exports/broadcast by public key alone — no private key on
@@ -160,6 +163,8 @@ function useWatchKey(watchPubKeyHex: string): void {
   provider = new WalletProvider(address)
   salesCache = null
   renderWallet()
+  markerBackup = loadMarkerBackup(address)
+  void refreshMarkerBackup()
 }
 
 /** True when no private key is loaded (watch-only). */
@@ -1605,7 +1610,7 @@ async function onCheckMessages(): Promise<void> {
   const k = requireKey(); if (k == null) return // messages are encrypted to the key; can't read them watch-only
   setStatus('Checking for messages…')
   try {
-    const msgs = await scanIncomingMessages(provider, k)
+    const msgs = await scanIncomingMessages(provider, k, markerTxIds(markerBackup))
     // Apply only each sender's LATEST self-claim. msgs are newest-first, so the first alias seen per sender
     // is the newest — applying every message would let an older one revert a more recent rename.
     applyLatestAliases(msgs.map(m => ({ pk: m.senderPubKeyHex, alias: m.senderAlias })))
@@ -1693,7 +1698,7 @@ async function onCheckIncoming(): Promise<void> {
 
   // Plain PushDrop tokens.
   try {
-    const incoming = await scanIncoming(provider, pubKeyHex)
+    const incoming = await scanIncoming(provider, pubKeyHex, markerTxIds(markerBackup))
     for (const t of incoming) {
       const tx = await provider.getSourceTransaction(t.txId)
       const v = await verifyTokenLineage(tx, t.outputIndex, { getRawTransaction: id => provider.getSourceTransaction(id) })
@@ -1705,7 +1710,7 @@ async function onCheckIncoming(): Promise<void> {
   // Edition covenant outputs (not address-indexed) — found via the transfer notification breadcrumb.
   // Run independently so a plain-scan failure can't block it.
   try {
-    const editions = await scanIncomingEditions(provider, pubKeyHex)
+    const editions = await scanIncomingEditions(provider, pubKeyHex, undefined, markerTxIds(markerBackup))
     for (const e of editions) {
       const name = await resolveCollectionName(e.tx1RefHex)
       if (store.add({
@@ -1729,6 +1734,75 @@ async function onCheckIncoming(): Promise<void> {
     setStatus(`Scan failed — ${errors.join('; ')}`, 'error')
   } else {
     setStatus(`Scan complete: ${added} NFT(s) + ${edAdded} edition(s) new.${errors.length ? ' (' + errors.join('; ') + ')' : ''}`, 'ok')
+  }
+}
+
+// ─── token backup: every marker and token this wallet has received ──
+/* Kept in this browser per address, brought up to date each time a wallet loads (only what is new since
+   the last use is fetched), and saved as a file to move to another device. See src/markerBackup.ts. */
+const MARKERS_KEY_PREFIX = 'p2:markers:'
+let markerBackup: MarkerBackup = emptyMarkerBackup('')
+let markerRefreshRunning = false
+
+function loadMarkerBackup(addr: string): MarkerBackup {
+  try {
+    const raw = localStorage.getItem(MARKERS_KEY_PREFIX + addr)
+    if (raw != null) { const b = parseMarkerBackup(raw); if (b.address === addr) return b }
+  } catch { /* unreadable: a fresh record, rebuilt from the history by the next refresh */ }
+  return emptyMarkerBackup(addr)
+}
+
+function saveMarkerBackup(b: MarkerBackup): void {
+  try { localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(b)) } catch { /* blocked or full: the file still works */ }
+}
+
+function updateMarkerNote(text?: string): void {
+  const el = document.getElementById('tokBackupNote'); if (el == null) return
+  if (text != null) { el.textContent = text; return }
+  const n = markerBackup.markers.length
+  el.textContent = markerBackup.readToHeight > 0
+    ? `${n} transaction${n === 1 ? '' : 's'} recorded, read to block ${markerBackup.readToHeight.toLocaleString()}.`
+    : 'Not read yet.'
+}
+
+/** Bring this wallet's token backup up to date. A wallet switched mid-run gets its own run straight after. */
+async function refreshMarkerBackup(): Promise<void> {
+  if (markerRefreshRunning) return
+  markerRefreshRunning = true
+  const forAddress = address
+  updateMarkerNote('Updating…')
+  try {
+    const prev = markerBackup.address === forAddress ? markerBackup : loadMarkerBackup(forAddress)
+    const { backup } = await updateMarkerBackup(provider, forAddress, pubKeyHex, prev)
+    if (address === forAddress) { markerBackup = backup; updateMarkerNote() }
+    saveMarkerBackup(backup)
+  } catch (e) {
+    if (address === forAddress) updateMarkerNote(`Could not update (${(e as Error).message}); the saved record is unchanged.`)
+  } finally {
+    markerRefreshRunning = false
+    if (address !== forAddress) void refreshMarkerBackup()
+  }
+}
+
+function onTokenBackupSave(): void {
+  if (markerBackup.address !== address) markerBackup = loadMarkerBackup(address)
+  downloadText(`smartnfts-token-backup-${address.slice(0, 8)}.json`, JSON.stringify(markerBackup, null, 1), 'application/json')
+  setStatus(`Saved a token backup of ${markerBackup.markers.length} transactions. It holds no keys.`, 'ok')
+}
+
+async function onTokenBackupRestore(): Promise<void> {
+  const text = await readFileText($('tokBackupFile') as HTMLInputElement)
+  if (text == null) { setStatus('Choose a token backup file first.', 'error'); return }
+  try {
+    const file = parseMarkerBackup(text)
+    const here = markerBackup.address === address ? markerBackup : loadMarkerBackup(address)
+    markerBackup = mergeMarkerBackups(here, file)
+    saveMarkerBackup(markerBackup)
+    updateMarkerNote()
+    setStatus(`Read ${file.markers.length} transactions from the backup. Recovering your tokens…`)
+    await onCheckIncoming()
+  } catch (e) {
+    setStatus(`Restore failed: ${(e as Error).message}`, 'error')
   }
 }
 
@@ -4883,6 +4957,8 @@ function init(): void {
   ;($('edResellerPct') as HTMLInputElement).addEventListener('input', updateFeePctPreview)
   ;($('edBond') as HTMLInputElement).addEventListener('input', updateFeePctPreview) // bond feeds the buyer-total preview
   $('btnIncoming').onclick = () => void onCheckIncoming()
+  $('btnTokBackupSave').onclick = () => onTokenBackupSave()
+  $('btnTokBackupRestore').onclick = () => void onTokenBackupRestore()
   $('btnSendMessage').onclick = () => void onSendMessage()
   $('btnCheckMessages').onclick = () => void onCheckMessages()
   $('msgTo').addEventListener('input', updateMsgToName)

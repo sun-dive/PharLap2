@@ -1,0 +1,161 @@
+// © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
+/**
+ * The marker backup — every transaction that brought the wallet a 1-sat marker or a token, through real
+ * edition and replication transactions and a fake network.
+ *
+ * ⚠ The case it exists for: a token whose marker has been spent and whose transaction the explorer's
+ *   history no longer lists. Only a record kept by the wallet itself still names that transaction.
+ */
+import { build } from 'esbuild'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { Signer } from '../impl/js/signer.mjs'
+import { Tx } from '../impl/js/transaction.mjs'
+import { toHex } from '../impl/js/bytes.mjs'
+
+const HERE = dirname(fileURLToPath(import.meta.url))
+let pass = 0, fail = 0
+const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
+const rejects = async (p, m) => { try { await p; return false } catch (e) { return String(e.message).includes(m) } }
+const throws = (f, m) => { try { f(); return false } catch (e) { return String(e.message).includes(m) } }
+
+const tmp = mkdtempSync(join(tmpdir(), 'mbak-'))
+const load = async (name, file) => {
+  await build({ entryPoints: [join(HERE, '..', 'src', file)], bundle: true, outfile: join(tmp, name),
+                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  return import(pathToFileURL(join(tmp, name)).href)
+}
+const MB = await load('mb.mjs', 'markerBackup.ts')
+const EB = await load('eb.mjs', 'editionBuilder.ts')
+
+const publisher = Signer.fromSeed(new Uint8Array(64).fill(81))
+const holder = Signer.fromSeed(new Uint8Array(64).fill(82))
+const buyer = Signer.fromSeed(new Uint8Array(64).fill(83))
+const stranger = Signer.fromSeed(new Uint8Array(64).fill(84))
+const HOLDER = { address: holder.address(), pub: toHex(holder.publicKey()) }
+const TX1 = 'b6'.repeat(31) + '04'
+// 1-sat fees: the publisher's and the holder's fee outputs are then 1-sat P2PKH markers
+const terms = { publisherPubKeyHash: Array.from(publisher.hash160()), publisherFeeSats: 1, holderFeeSats: 1, tokenSats: 1 }
+const funding = (n, sats) => [{ utxo: { txId: 'cc'.repeat(31) + n.toString(16).padStart(2, '0'), outputIndex: 0, satoshis: sats, script: '' } }]
+
+const genesis = await EB.buildEditionGenesisTx({ key: publisher, funding: funding(1, 300000), tx1Ref: TX1, terms, ownerPubKey: Array.from(holder.publicKey()) })
+const ev = genesis.editionVouts[0]
+const replicate = async (n, from) => EB.buildReplicateTx({
+  edition: { txId: from.txId, outputIndex: from.vout, satoshis: 1, lockBytes: Array.from(from.tx.outputs[from.vout].script) },
+  terms, buyerKey: buyer, funding: funding(n, 300000),
+})
+const rep = await replicate(2, { txId: genesis.txId, vout: ev, tx: genesis.tx })
+// a plain payment to the holder, of more than 1 sat: not a marker, and no token
+const pay = new Tx(1, [{ txid: new Uint8Array(32).fill(9), vout: 0, script: new Uint8Array(0), sequence: 0xffffffff }],
+                     [{ value: 5000, script: holder.lockingScript() }, { value: 2, script: holder.lockingScript() }], 0)
+
+// ── ★★★ 1 · what one transaction holds for the wallet ───────────────────────────────────────────────
+{
+  const r = MB.readMarkers(rep.tx, HOLDER.address, HOLDER.pub)
+  ok(r.markerVouts.length === 1 && rep.tx.outputs[r.markerVouts[0]].value === 1, `★★★ the holder's 1-sat fee output is read as a marker (${r.markerVouts})`)
+  ok(r.carries.length === 1 && r.carries[0].outputIndex === rep.holderTokenVout && r.carries[0].kind === 'edition' && r.carries[0].collectionId === TX1,
+     '★★ …and the holder\'s copy, returned at out[0], as an edition of its collection')
+  const b = MB.readMarkers(rep.tx, buyer.address(), toHex(buyer.publicKey()))
+  ok(b.markerVouts.length === 0 && b.carries.length === 1 && b.carries[0].outputIndex === rep.replicaVout,
+     '★★★ a bought copy comes with no 1-sat marker, and is still read: the token it carries')
+  const s = MB.readMarkers(rep.tx, stranger.address(), toHex(stranger.publicKey()))
+  ok(s.markerVouts.length === 0 && s.carries.length === 0, '⛔ a key the transaction does not pay reads nothing')
+  const g = MB.readMarkers(genesis.tx, HOLDER.address, HOLDER.pub)
+  ok(g.markerVouts.length === 0 && g.carries.length >= 1, '★ a 1-sat edition output is a token, not a marker')
+  const p = MB.readMarkers(pay, HOLDER.address, HOLDER.pub)
+  ok(p.markerVouts.length === 0 && p.carries.length === 0, '⛔ a payment of 2 or 5,000 sat is not a marker')
+}
+
+// ── a fake network: the full history, and transactions that can be made to fail ────────────────────
+function net(entries, { failing = new Set(), historyFails = false } = {}) {
+  const byId = new Map(entries.map(e => [e.tx.txid(), e.tx]))
+  const fetched = []
+  return {
+    fetched,
+    async getFullAddressHistory() {
+      if (historyFails) throw new Error('WoC confirmed history fetch failed: 500')
+      return entries.map(e => ({ txId: e.tx.txid(), blockHeight: e.h }))
+    },
+    async getSourceTransaction(id) {
+      fetched.push(id)
+      if (failing.has(id)) throw new Error('fetch failed')
+      const t = byId.get(id); if (!t) throw new Error(`no tx ${id}`); return t
+    },
+  }
+}
+
+// ── ★★★ 2 · first use reads everything; later uses read only what is new ────────────────────────────
+const later = await replicate(3, { txId: rep.txId, vout: rep.holderTokenVout, tx: rep.tx })
+let afterFirst
+{
+  const p = net([{ tx: genesis.tx, h: 100 }, { tx: rep.tx, h: 101 }, { tx: pay, h: 101 }])
+  const { backup, added, fetched } = await MB.updateMarkerBackup(p, HOLDER.address, HOLDER.pub, MB.emptyMarkerBackup(HOLDER.address))
+  ok(fetched === 3 && added === 2, `★★★ the first use reads all three and records the two that brought a token (${fetched}, ${added})`)
+  ok(backup.readToHeight === 101, `★ …read to the top block (${backup.readToHeight})`)
+  ok(!backup.markers.some(m => m.txId === pay.txid()), '⛔ the plain payment is not recorded')
+  afterFirst = backup
+}
+{
+  const p = net([{ tx: genesis.tx, h: 100 }, { tx: rep.tx, h: 101 }, { tx: pay, h: 101 }, { tx: later.tx, h: 105 }])
+  const { backup, added } = await MB.updateMarkerBackup(p, HOLDER.address, HOLDER.pub, afterFirst)
+  ok(!p.fetched.includes(genesis.txId), '★★★ a transaction below the height already read is not fetched again')
+  ok(!p.fetched.includes(rep.txId), '★★ …nor one already recorded')
+  ok(p.fetched.includes(later.txId) && added === 1, '★★★ the new replication is read and recorded')
+  ok(p.fetched.includes(pay.txid()), '★ the top block already read is read again, in case it was not complete')
+  ok(backup.markers.length === 3 && backup.readToHeight === 105, `★ three recorded, read to block 105 (${backup.markers.length}, ${backup.readToHeight})`)
+}
+
+// ── ⛔ a transaction that cannot be fetched holds the height read, so it is tried again ──────────────
+{
+  const p = net([{ tx: genesis.tx, h: 100 }, { tx: rep.tx, h: 101 }, { tx: later.tx, h: 105 }], { failing: new Set([rep.txId]) })
+  const { backup } = await MB.updateMarkerBackup(p, HOLDER.address, HOLDER.pub, MB.emptyMarkerBackup(HOLDER.address))
+  ok(backup.readToHeight === 101, `★★★ a failed fetch at block 101 holds the height read at 101, not 105 (${backup.readToHeight})`)
+  const retry = net([{ tx: genesis.tx, h: 100 }, { tx: rep.tx, h: 101 }, { tx: later.tx, h: 105 }])
+  const again = await MB.updateMarkerBackup(retry, HOLDER.address, HOLDER.pub, backup)
+  ok(retry.fetched.includes(rep.txId) && again.backup.markers.some(m => m.txId === rep.txId), '★★ …and the next use reads it')
+  ok(again.backup.readToHeight === 105, '★ …and then moves on to the top')
+}
+{
+  const p = net([{ tx: genesis.tx, h: 100 }], { historyFails: true })
+  ok(await rejects(MB.updateMarkerBackup(p, HOLDER.address, HOLDER.pub, afterFirst), 'history fetch failed'),
+     '⛔ a history that cannot be listed throws, so the caller keeps the backup it had')
+}
+
+// ── ★★ 3 · the file: read back, joined, and refused for another wallet ──────────────────────────────
+{
+  const round = MB.parseMarkerBackup(JSON.stringify(afterFirst, null, 1))
+  ok(round.address === HOLDER.address && round.markers.length === afterFirst.markers.length && round.readToHeight === 101, '★★ a saved file reads back as it was')
+  ok(throws(() => MB.parseMarkerBackup('not json'), 'not a token backup'), '⛔ a file that is not JSON is refused')
+  ok(throws(() => MB.parseMarkerBackup('{"schema":1}'), 'not a token backup'), '⛔ JSON that is not a backup is refused')
+  ok(throws(() => MB.parseMarkerBackup(JSON.stringify({ ...afterFirst, schema: 9 })), 'format 9'), '⛔ a later format is refused, by name')
+  const other = { ...MB.emptyMarkerBackup(HOLDER.address), readToHeight: 200, markers: [{ txId: later.txId, markerVouts: [3], carries: [], height: 105 }] }
+  const joined = MB.mergeMarkerBackups(afterFirst, other)
+  ok(joined.markers.length === 3 && joined.readToHeight === 200, '★★ two backups of one wallet join: every transaction in either, the higher height read')
+  ok(throws(() => MB.mergeMarkerBackups(afterFirst, MB.emptyMarkerBackup(stranger.address())), 'different wallet'), '⛔ a backup of another wallet is refused')
+}
+
+// ── ★★★ 4 · restore: the backup finds an edition that neither the history nor the coins name ────────
+{
+  const byId = new Map([[genesis.txId, genesis.tx]])
+  const blind = {
+    getAddress() { return '' },
+    async getSourceTransaction(id) { const t = byId.get(id); if (!t) throw new Error(`no tx ${id}`); return t },
+    async getUtxos() { return [] },
+    async getFullAddressHistory() { return [] },
+    async getAddressHistory() { return [] },
+    async getUnspentByScriptHash(sh) {
+      const out = []
+      genesis.tx.outputs.forEach((o, i) => { if (EB.wocScriptHash(Array.from(o.script)) === sh) out.push({ txId: genesis.txId, outputIndex: i, satoshis: o.value, height: 100 }) })
+      return out
+    },
+  }
+  ok((await EB.scanIncomingEditions(blind, HOLDER.pub)).length === 0, '⚠ with no history and no marker left, the scan alone finds nothing')
+  const found = await EB.scanIncomingEditions(blind, HOLDER.pub, undefined, MB.markerTxIds(afterFirst))
+  ok(found.some(f => f.txId === genesis.txId && f.outputIndex === ev), '★★★ given the backup, the same scan finds the edition')
+}
+
+rmSync(tmp, { recursive: true, force: true })
+console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [marker backup · real transactions, a fake network]`)
+process.exit(fail === 0 ? 0 : 1)

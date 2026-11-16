@@ -138,9 +138,13 @@ export interface IncomingMessage {
  * so an unconfirmed message surfaces immediately via its 1-sat notification UTXO). Outputs whose
  * envelope can't be opened with our key are skipped.
  */
-export async function scanIncomingMessages(provider: WalletProvider, recipientPriv: Signer): Promise<IncomingMessage[]> {
+export async function scanIncomingMessages(
+  provider: WalletProvider, recipientPriv: Signer,
+  /** Transactions to read whatever the history says: the wallet's marker backup. */
+  extraTxIds: string[] = [],
+): Promise<IncomingMessage[]> {
   const myPub = toHex(recipientPriv.publicKey()).toLowerCase()
-  const candidateTxIds = new Set<string>()
+  const candidateTxIds = new Set<string>(extraTxIds)
   const heightByTx = new Map<string, number>()
   try { for (const h of await provider.getFullAddressHistory()) { candidateTxIds.add(h.txId); heightByTx.set(h.txId, h.blockHeight || 0) } } catch { /* best-effort */ }
   try { for (const u of await provider.getUtxos()) candidateTxIds.add(u.txId) } catch { /* best-effort */ }

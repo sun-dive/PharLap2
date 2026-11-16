@@ -225,11 +225,13 @@ export interface IncomingToken {
 export async function scanIncoming(
   provider: WalletProvider,
   myPubKeyHex: string,
+  /** Transactions to read whatever the history says: the wallet's marker backup. */
+  extraTxIds: string[] = [],
 ): Promise<IncomingToken[]> {
   // Candidate txs: confirmed address history PLUS the txids of current UTXOs at our address.
   // The latter is mempool-aware (getUtxos includes unconfirmed), so the 1-sat notification
   // output of an incoming transfer surfaces the carrying tx immediately, before it confirms.
-  const candidateTxIds = new Set<string>()
+  const candidateTxIds = new Set<string>(extraTxIds)
   try {
     for (const { txId } of await provider.getFullAddressHistory()) candidateTxIds.add(txId)
   } catch { /* history is best-effort */ }

@@ -611,6 +611,14 @@
       </div>
       <p class="muted" style="font-size:12px;margin:6px 0 0">Restoring rebuilds your wallet <b>and recovers your purchases from chain</b> — works on any browser or device.</p>
 
+      <label style="margin-top:12px">Token backup</label>
+      <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+        <button id="btnTokBackupSave" class="secondary">⤓ Save backup file</button>
+        <input id="tokBackupFile" type="file" accept="application/json,.json" style="flex:1 1 12em;min-width:0" />
+        <button id="btnTokBackupRestore" class="secondary">Restore from file</button>
+      </div>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">A record of every token your wallet has received, kept in this browser and updated each time you open the wallet. <span id="tokBackupNote"></span> Save the file to move to another device. It holds no keys.</p>
+
       <label style="margin-top:12px">👁 Watch a wallet (public key only — keyless)</label>
       <div class="grid2">
         <input id="watchPubKey" placeholder="33-/65-byte hex public key from your offline wallet" autocomplete="off" data-scan="pubkey" />
