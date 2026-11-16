@@ -27,6 +27,7 @@ import { Tx } from '../impl/js/transaction.mjs'
 import { parseTokenScript } from './tokenCodec.ts'
 import { parseEditionScript } from './covenant.ts'
 import { verifyMerkleProof, type MerkleProofEntry } from './tokenProtocol.ts'
+import { THUMB_URL } from './thumbs.ts'
 import type { StoredToken } from './pharlapStore.ts'
 import type { WalletProvider } from './walletProvider.ts'
 
@@ -58,6 +59,13 @@ export interface MarkerRecord {
   proof?: MerkleProofEntry
 }
 
+/**
+ * What a holdings card shows for a collection, as the wallet had it cached: the content's file type (null: the
+ * collection has no file) and a small thumbnail (an image data URL; null: none). Carried in the file only, so a
+ * restore draws the cards without fetching each collection's first transaction.
+ */
+export interface CardData { mime: string | null; thumb: string | null }
+
 export interface MarkerBackup {
   schema: number
   address: string
@@ -66,6 +74,8 @@ export interface MarkerBackup {
   markers: MarkerRecord[]
   /** The wallet's token list when last saved: everything needed to show and spend each token. */
   tokens: StoredToken[]
+  /** Card data per collection id. */
+  cards?: Record<string, CardData>
 }
 
 export function emptyMarkerBackup(address: string): MarkerBackup {
@@ -184,9 +194,20 @@ export function parseMarkerBackup(text: string): MarkerBackup {
     ? b.tokens.filter((t: any) => t != null && typeof t.txId === 'string' && /^[0-9a-f]{64}$/.test(t.txId) &&
         Number.isInteger(t.outputIndex) && typeof t.collectionId === 'string')
     : []
+  const cards: Record<string, CardData> = {}
+  if (b.cards != null && typeof b.cards === 'object') {
+    for (const [id, c] of Object.entries(b.cards as Record<string, any>)) {
+      if (!/^[0-9a-f]{64}$/.test(id) || c == null || typeof c !== 'object') continue
+      cards[id] = {
+        mime: typeof c.mime === 'string' && c.mime !== '' ? c.mime : null,
+        thumb: typeof c.thumb === 'string' && THUMB_URL.test(c.thumb) ? c.thumb : null, // an image, or nothing
+      }
+    }
+  }
   return {
     schema: MARKER_BACKUP_SCHEMA, address: b.address,
     readToHeight: Number.isInteger(b.readToHeight) ? b.readToHeight : 0, markers, tokens,
+    ...(Object.keys(cards).length > 0 ? { cards } : {}),
   }
 }
 
@@ -210,9 +231,11 @@ export function mergeMarkerBackups(a: MarkerBackup, b: MarkerBackup): MarkerBack
   }
   const tokens = new Map((a.tokens ?? []).map(t => [`${t.txId}:${t.outputIndex}`, t]))
   for (const t of b.tokens ?? []) if (!tokens.has(`${t.txId}:${t.outputIndex}`)) tokens.set(`${t.txId}:${t.outputIndex}`, t)
+  const cards = { ...(b.cards ?? {}), ...(a.cards ?? {}) }
   return {
     schema: MARKER_BACKUP_SCHEMA, address: a.address, readToHeight: Math.max(a.readToHeight, b.readToHeight),
     markers: [...byId.values()], tokens: [...tokens.values()],
+    ...(Object.keys(cards).length > 0 ? { cards } : {}),
   }
 }
 

@@ -42,11 +42,11 @@ import type { Part } from './messageCodec.ts'
 import type { StoredToken } from './pharlapStore.ts'
 import { verifyTokenLineage, verifyEditionCovenant } from './verify.ts'
 import { parseTemplateScript, parseFileScript, parseStorefrontScript, parseLegacyFileScript, decodeTokenRules, type TemplateFields, type StorefrontFields } from './tokenCodec.ts'
-import { cachedThumb, thumbResolved, cacheNoThumb, makeThumb, cachedMime, cacheMime, downscaleToAvatar } from './thumbs.ts'
+import { cachedThumb, thumbResolved, cacheNoThumb, cacheThumbUrl, makeThumb, cachedMime, cacheMime, downscaleToAvatar } from './thumbs.ts'
 import { publishProfile, resolveProfile } from './profile.ts'
 import { readCorridor, postToNodeFeed, type CorridorNode, type DiscPost } from './discussion.ts'
 import { publishConfigBackup, resolveConfigBackup, mergeConfig } from './configBackup.ts'
-import { emptyMarkerBackup, updateMarkerBackup, parseMarkerBackup, mergeMarkerBackups, markerTxIds, markerBackupFileName, heldTransactions, type MarkerBackup } from './markerBackup.ts'
+import { emptyMarkerBackup, updateMarkerBackup, parseMarkerBackup, mergeMarkerBackups, markerTxIds, markerBackupFileName, heldTransactions, type MarkerBackup, type CardData } from './markerBackup.ts'
 import { unwrapContentKey, decryptContent } from './contentCrypto.ts'
 import { decompress } from './compress.ts'
 
@@ -1783,8 +1783,32 @@ function withTokenList(b: MarkerBackup): MarkerBackup {
   return b.address === address ? { ...b, tokens: store.list().filter(t => t.status === 'active') } : b
 }
 
+/** The backup as saved to a file: with the token list and each collection's card data, as cached here. */
+function forFile(b: MarkerBackup): MarkerBackup {
+  const file = withTokenList(b)
+  const cards: Record<string, CardData> = {}
+  for (const t of file.tokens) {
+    const id = t.collectionId
+    if (cards[id] != null) continue
+    const mime = cachedMime(id)
+    if (mime === undefined || !thumbResolved(id)) continue // not resolved here: the restore fetches it
+    cards[id] = { mime, thumb: cachedThumb(id) }
+  }
+  return { ...file, cards }
+}
+
+/** Put a backup's card data into this browser's cache, for collections it has not resolved itself. */
+function applyCards(cards: Record<string, CardData> | undefined): void {
+  for (const [id, c] of Object.entries(cards ?? {})) {
+    if (cachedMime(id) === undefined) cacheMime(id, c.mime)
+    if (!thumbResolved(id) && (c.thumb == null || !cacheThumbUrl(id, c.thumb))) cacheNoThumb(id)
+  }
+}
+
 function saveMarkerBackup(b: MarkerBackup): void {
-  try { localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(withTokenList(b))) } catch { /* blocked or full: the file still works */ }
+  // Card data is left out here: this browser already caches it, under its own keys.
+  const { cards: _cards, ...local } = withTokenList(b)
+  try { localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(local)) } catch { /* blocked or full: the file still works */ }
 }
 
 function updateMarkerNote(text?: string): void {
@@ -1842,6 +1866,7 @@ function restoreTokens(): void {
 async function applyBackup(b: MarkerBackup, from: string): Promise<void> {
   showRestoreChoice(false)
   provider.seedTransactions(heldTransactions(b))
+  applyCards(b.cards)
   let n = 0
   for (const t of b.tokens) if (t.status === 'active' && store.add(t)) n++
   renderTokens()
@@ -1859,9 +1884,9 @@ async function rescanWalletHistory(): Promise<void> {
 
 function onTokenBackupSave(): void {
   if (markerBackup.address !== address) markerBackup = loadMarkerBackup(address)
-  const file = withTokenList(markerBackup)
+  const file = forFile(markerBackup)
   downloadText(markerBackupFileName(address, getMyAlias()), JSON.stringify(file, null, 1), 'application/json')
-  setStatus(`Saved a token backup: ${file.tokens.length} tokens and ${file.markers.length} transactions. It holds no keys.`, 'ok')
+  setStatus(`Saved a token backup: ${file.tokens.length} tokens, ${file.markers.length} transactions and ${Object.keys(file.cards ?? {}).length} collections' card data. It holds no keys.`, 'ok')
 }
 
 async function onTokenBackupRestore(): Promise<void> {

@@ -192,6 +192,22 @@ let afterFirst
   ok(MB.mergeMarkerBackups(MB.emptyMarkerBackup(HOLDER.address), withList).tokens.length === 1, '★ …and survives a join')
   ok(MB.heldTransactions(afterFirst).length === afterFirst.markers.length, '★ every transaction held whole is offered to the provider')
 }
+// ── ★★ card data: carried for each collection, and only an image can be a thumbnail ─────────────────
+{
+  const C1 = 'c1'.repeat(32), C2 = 'c2'.repeat(32), C3 = 'c3'.repeat(32)
+  const thumb = 'data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA'
+  const f = MB.parseMarkerBackup(JSON.stringify({ ...afterFirst, cards: {
+    [C1]: { mime: 'font/woff2', thumb },
+    [C2]: { mime: null, thumb: 'javascript:alert(1)' },
+    [C3]: { mime: 'application/zip', thumb: 'https://example.com/x.png' },
+    'not-an-id': { mime: 'x', thumb } } }))
+  ok(f.cards?.[C1]?.mime === 'font/woff2' && f.cards?.[C1]?.thumb === thumb, '★★ a collection\'s file type and thumbnail read back')
+  ok(f.cards?.[C2]?.thumb === null && f.cards?.[C3]?.thumb === null, '⛔ a thumbnail that is not an image data URL is dropped')
+  ok(f.cards?.[C2]?.mime === null && f.cards?.[C3]?.mime === 'application/zip', '★ …while the file type is kept')
+  ok(Object.keys(f.cards ?? {}).length === 3, '⛔ an entry that is not a collection id is dropped')
+  const j = MB.mergeMarkerBackups({ ...MB.emptyMarkerBackup(HOLDER.address), cards: { [C1]: { mime: 'image/png', thumb: null } } }, f)
+  ok(j.cards?.[C1]?.mime === 'image/png' && j.cards?.[C3]?.mime === 'application/zip', '★ joining keeps every collection\'s card data, the first backup\'s first')
+}
 
 // ── ★ the file is named after the wallet's handle ───────────────────────────────────────────────────
 {
