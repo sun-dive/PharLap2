@@ -183,16 +183,16 @@ export class WalletProvider {
         }))
     }
 
-    // Confirmed UTXOs (mempool-aware: flags + excludes mempool-spent outputs).
-    const allResp = await fetchWithRetry(`${WOC_BASE}/address/${address}/unspent/all`)
-    if (!allResp.ok) throw new Error(`WoC UTXO fetch failed: ${allResp.status}`)
-    const confirmedUtxos = mapRows(await allResp.json())
+    // Confirmed UTXOs (mempool-aware: flags + excludes mempool-spent outputs), every page: an address can hold
+    // more than 1,000 coins and markers.
+    const allRows = await this.allPages(`/address/${address}/unspent/all`, 'UTXO')
+    if (allRows == null) throw new Error('WoC UTXO fetch failed: 404')
+    const confirmedUtxos = mapRows(allRows)
 
     // Unconfirmed received UTXOs, so funding can be spent before it confirms (best-effort).
     let unconfirmedUtxos: Utxo[] = []
     try {
-      const ucResp = await fetchWithRetry(`${WOC_BASE}/address/${address}/unconfirmed/unspent`)
-      if (ucResp.ok) unconfirmedUtxos = mapRows(await ucResp.json())
+      unconfirmedUtxos = mapRows((await this.allPages(`/address/${address}/unconfirmed/unspent`, 'unconfirmed UTXO')) ?? [])
     } catch { /* unconfirmed is best-effort */ }
 
     // Merge + dedupe by outpoint.
@@ -568,24 +568,37 @@ export class WalletProvider {
    * Every page goes through the same queue as every other request. A failed page throws rather than
    * returning what was read so far: a short history looks exactly like a complete one.
    */
-  async getFullAddressHistory(address: string = this.getAddress()): Promise<{ txId: string; blockHeight: number }[]> {
-    const heights = new Map<string, number>()
-    const rowsOf = (data: any): any[] => Array.isArray(data?.result) ? data.result : (Array.isArray(data) ? data : [])
+  /**
+   * Every row of a WoC list that answers in pages: `result` and a `nextPageToken`, the next page asked for with
+   * `?token=`. ⚠ The history and unspent lists answer at most 1,000 rows a page (measured on an unspent list: the
+   * second page held 1,000 more, none repeated), so reading only the first hides the rest. An empty page, no
+   * token, or a token already followed ends it. A failed page throws: a short list looks complete. A 404 on the
+   * first page means WoC has never seen the address or script: null.
+   */
+  private async allPages(path: string, what: string): Promise<any[] | null> {
+    const rows: any[] = []
     const tokens = new Set<string>()
     let token = ''
     for (;;) {
-      const query = token === '' ? '' : `?token=${encodeURIComponent(token)}`
-      const resp = await fetchWithRetry(`${WOC_BASE}/address/${address}/confirmed/history${query}`)
-      if (resp.status === 404) break // an address never seen has an empty history
-      if (!resp.ok) throw new Error(`WoC confirmed history fetch failed: ${resp.status}`)
+      const resp = await fetchWithRetry(`${WOC_BASE}${path}${token === '' ? '' : `?token=${encodeURIComponent(token)}`}`)
+      if (resp.status === 404 && token === '') return null
+      if (!resp.ok) throw new Error(`WoC ${what} fetch failed: ${resp.status}`)
       const data = await resp.json()
-      const rows = rowsOf(data)
-      for (const r of rows) heights.set(r.tx_hash as string, (r.height ?? 0) as number)
+      const page: any[] = Array.isArray(data?.result) ? data.result : (Array.isArray(data) ? data : [])
+      rows.push(...page)
       const next = typeof data?.nextPageToken === 'string' ? data.nextPageToken : ''
-      // An empty page, no token or a token already followed ends the walk: each is the last page.
-      if (rows.length === 0 || next === '' || tokens.has(next)) break
+      if (page.length === 0 || next === '' || tokens.has(next)) return rows
       tokens.add(next)
       token = next
+    }
+  }
+
+  async getFullAddressHistory(address: string = this.getAddress()): Promise<{ txId: string; blockHeight: number }[]> {
+    const heights = new Map<string, number>()
+    const rowsOf = (data: any): any[] => Array.isArray(data?.result) ? data.result : (Array.isArray(data) ? data : [])
+    // An address never seen has an empty history.
+    for (const r of (await this.allPages(`/address/${address}/confirmed/history`, 'confirmed history')) ?? []) {
+      heights.set(r.tx_hash as string, (r.height ?? 0) as number)
     }
     const pending = await fetchWithRetry(`${WOC_BASE}/address/${address}/unconfirmed/history`)
     if (pending.ok) {
@@ -633,11 +646,11 @@ export class WalletProvider {
         .filter((u: any) => u.isSpentInMempoolTx !== true)
         .map((u: any) => ({ txId: u.tx_hash as string, outputIndex: u.tx_pos as number, satoshis: u.value as number, script: '', height: u.height as number }))
     }
-    const all = await fetchWithRetry(`${WOC_BASE}/script/${scriptHash}/unspent/all`)
-    if (all.ok) return mapRows(await all.json())
-    const resp = await fetchWithRetry(`${WOC_BASE}/script/${scriptHash}/unspent`)
-    if (!resp.ok) throw new Error(`WoC script-unspent fetch failed: ${resp.status}`)
-    return mapRows(await resp.json())
+    // Every page: one script can hold more than 1,000 outputs, such as many copies of one edition.
+    let rows: any[] | null = null
+    try { rows = await this.allPages(`/script/${scriptHash}/unspent/all`, 'script-unspent') } catch { rows = null }
+    if (rows == null) rows = (await this.allPages(`/script/${scriptHash}/unspent`, 'script-unspent')) ?? []
+    return mapRows(rows)
   }
 
   /**
@@ -687,12 +700,7 @@ export class WalletProvider {
   async getRecentTxIdsForAddress(address: string): Promise<string[]> {
     const out = new Set<string>()
     try {
-      const r = await fetchWithRetry(`${WOC_BASE}/address/${address}/unspent/all`)
-      if (r.ok) {
-        const data = await r.json()
-        const rows: any[] = Array.isArray(data?.result) ? data.result : (Array.isArray(data) ? data : [])
-        for (const u of rows) if (u.tx_hash) out.add(u.tx_hash as string)
-      }
+      for (const u of (await this.allPages(`/address/${address}/unspent/all`, 'unspent')) ?? []) if (u.tx_hash) out.add(u.tx_hash as string)
     } catch { /* best-effort */ }
     return [...out]
   }

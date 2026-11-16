@@ -284,6 +284,38 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
   ok(tamperedCaught === all, `⛔ …and every one fails once a hash or its root is changed (${tamperedCaught} of ${all})`)
 }
 
+// ── ★★★ an unspent list longer than one page is read to the end ─────────────────────────────────────
+{
+  const page = (rows, next) => resp({ result: rows, ...(next ? { nextPageToken: next } : {}) })
+  const u = (n, extra = {}) => ({ tx_hash: 'cd'.repeat(32), tx_pos: n, value: 1, height: 900000, ...extra })
+  const SH = 'ef'.repeat(32)
+  const { p, calls } = wired(url => {
+    if (url.endsWith(`/script/${SH}/unspent/all`)) return page([u(0), u(1)], 'p2')
+    if (url.endsWith(`/script/${SH}/unspent/all?token=p2`)) return page([u(2), u(3, { isSpentInMempoolTx: true })], 'p3')
+    if (url.endsWith(`/script/${SH}/unspent/all?token=p3`)) return page([u(4)])
+    if (url.endsWith(`/address/${ADDR}/unspent/all`)) return page([u(10)], 'a2')
+    if (url.endsWith(`/address/${ADDR}/unspent/all?token=a2`)) return page([u(11)])
+    if (url.includes(`/address/${ADDR}/unconfirmed/unspent`)) return page([])
+    return resp(null, 404)
+  })
+  const got = await p.getUnspentByScriptHash(SH)
+  ok(got.length === 4 && got.map(x => x.outputIndex).join() === '0,1,2,4', `★★★ all three pages of a script's unspent list are read (${got.map(x => x.outputIndex)})`)
+  ok(calls.filter(([url]) => url.includes(`/script/${SH}/`)).length === 3, '★ …one request per page')
+  const coins = await p.getUtxos()
+  ok(coins.length === 2 && coins.some(c => c.outputIndex === 11), `★★★ the wallet's own coin list reads every page too (${coins.length})`)
+}
+{
+  const SH = 'fa'.repeat(32)
+  const { p } = wired(url => {
+    if (url.endsWith(`/script/${SH}/unspent/all`)) return resp({ result: [{ tx_hash: 'cd'.repeat(32), tx_pos: 0, value: 1 }], nextPageToken: 'x' })
+    if (url.includes(`/script/${SH}/unspent/all?token=`)) return resp('', 500)
+    if (url.endsWith(`/script/${SH}/unspent`)) return resp({ result: [{ tx_hash: 'cd'.repeat(32), tx_pos: 0, value: 1 }, { tx_hash: 'cd'.repeat(32), tx_pos: 1, value: 1 }] })
+    return resp(null, 404)
+  })
+  const got = await p.getUnspentByScriptHash(SH)
+  ok(got.length === 2, '⛔ a page of the mempool-aware list that fails is not a short answer: the confirmed list is read instead')
+}
+
 // ── ★★★ unspent outputs for many scripts: in bulk, and exactly where a bulk answer cannot be trusted ──
 //
 // ⚠ Measured: the bulk calls answer at most 20 outputs per script, and the confirmed one does not flag an
