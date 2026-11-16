@@ -7081,8 +7081,9 @@
     }
     const scripts = new Map(cache?.scripts ?? []);
     const since = cache?.sinceHeight ?? -1;
+    const alwaysRead = new Set(extraTxIds);
     for (const [txId, h] of cand) {
-      if (since >= 0 && h > 0 && h <= since) continue;
+      if (!alwaysRead.has(txId) && since >= 0 && h > 0 && h <= since) continue;
       let tx;
       try {
         tx = await provider2.getSourceTransaction(txId);
@@ -12113,7 +12114,7 @@ It's posted to your own address and spends a small network fee. Proceed?`
   async function onCheckIncoming(opts = {}) {
     const localFirst = !opts.full && markerBackup.address === address && markerBackup.readToHeight > 0;
     const since = localFirst ? markerBackup.readToHeight - 1 : -1;
-    setStatus(localFirst ? `Checking for anything new since block ${markerBackup.readToHeight.toLocaleString()}\u2026` : "Scanning the whole chain for your NFTs and editions\u2026");
+    setStatus(localFirst ? `Checking for anything new since block ${markerBackup.readToHeight.toLocaleString()}\u2026` : "Reading your wallet's whole history for your NFTs and editions\u2026");
     let added = 0;
     let edAdded = 0;
     const errors = [];
@@ -12235,11 +12236,11 @@ It's posted to your own address and spends a small network fee. Proceed?`
       return;
     }
     restoreChoicePending = true;
-    setStatusHtml('Restore your tokens: <button id="btnRestoreFromFile" class="secondary">Choose backup file</button> <button id="btnRestoreFromChain" class="secondary">Scan the chain</button> <span class="muted">A backup file restores from what you saved; a scan of the chain reads your whole history.</span>');
+    setStatusHtml(`Restore your tokens: <button id="btnRestoreFromFile" class="secondary">Choose backup file</button> <button id="btnRestoreFromHistory" class="secondary">Read wallet history</button> <span class="muted">A backup file restores from what you saved; reading your wallet's whole history takes longer.</span>`);
     $("btnRestoreFromFile").onclick = () => $("tokBackupFile").click();
-    $("btnRestoreFromChain").onclick = () => {
+    $("btnRestoreFromHistory").onclick = () => {
       restoreChoicePending = false;
-      void scanWholeChain();
+      void rescanWalletHistory();
     };
   }
   async function applyBackup(b, from) {
@@ -12252,7 +12253,7 @@ It's posted to your own address and spends a small network fee. Proceed?`
     await onCheckIncoming();
     void refreshMarkerBackup();
   }
-  async function scanWholeChain() {
+  async function rescanWalletHistory() {
     await onCheckIncoming({ full: true });
     void refreshMarkerBackup();
   }
@@ -15561,7 +15562,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"49414f9"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"6d15cd2"} \xB7 ${"2026-11-16"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
@@ -15648,7 +15649,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
     $("btnIncoming").onclick = () => void onCheckIncoming();
     $("btnTokBackupSave").onclick = () => onTokenBackupSave();
     $("btnTokBackupRestore").onclick = () => void onTokenBackupRestore();
-    $("btnTokFullScan").onclick = () => void scanWholeChain();
+    $("btnTokRescan").onclick = () => void rescanWalletHistory();
     $("tokBackupFile").addEventListener("change", () => {
       if (restoreChoicePending) void onTokenBackupRestore();
     });
