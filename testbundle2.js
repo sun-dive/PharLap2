@@ -4764,10 +4764,24 @@
         tokenSats: token.tokenSats,
         sellerNote: token.sellerNote,
         bonusKind: token.bonusKind,
-        bonusValue: token.bonusValue
+        bonusValue: token.bonusValue,
+        heightHint: token.heightHint
       });
       this.write(tokens);
       return true;
+    }
+    /** Record the block a stored token's transaction is in. Returns true if anything changed. */
+    setHeightHint(txId, outputIndex, heightHint) {
+      if (!(heightHint > 0)) return false;
+      const k = outpointKey({ txId, outputIndex });
+      let changed = false;
+      const tokens = this.list().map((t) => {
+        if (outpointKey(t) !== k || t.heightHint === heightHint) return t;
+        changed = true;
+        return { ...t, heightHint };
+      });
+      if (changed) this.write(tokens);
+      return changed;
     }
     /** Cache the publisher's recovered full pubkey on every held copy of a collection (set lazily after a
      *  TX1 input lookup). Keyed by collectionId since all editions of a collection share one publisher. */
@@ -7851,8 +7865,12 @@
   }
   async function scanIncoming(provider2, myPubKeyHex, extraTxIds = []) {
     const candidateTxIds = new Set(extraTxIds);
+    const heightOf = /* @__PURE__ */ new Map();
     try {
-      for (const { txId } of await provider2.getFullAddressHistory()) candidateTxIds.add(txId);
+      for (const { txId, blockHeight } of await provider2.getFullAddressHistory()) {
+        candidateTxIds.add(txId);
+        if (blockHeight > 0) heightOf.set(txId, blockHeight);
+      }
     } catch {
     }
     try {
@@ -7868,7 +7886,7 @@
         continue;
       }
       for (const { outputIndex, fields } of findOwnedTokenOutputs(tx, myPubKeyHex)) {
-        found.push({ txId, outputIndex, fields });
+        found.push({ txId, outputIndex, fields, height: heightOf.get(txId) });
       }
     }
     return found;
@@ -11996,7 +12014,8 @@ It's posted to your own address and spends a small network fee. Proceed?`
         const tx = await provider.getSourceTransaction(t.txId);
         const v = await verifyTokenLineage(tx, t.outputIndex, { getRawTransaction: (id) => provider.getSourceTransaction(id) });
         if (!v.valid) continue;
-        if (store2.add({ txId: t.txId, outputIndex: t.outputIndex, collectionId: t.fields.tx1Ref, stateData: t.fields.stateData })) added++;
+        if (store2.add({ txId: t.txId, outputIndex: t.outputIndex, collectionId: t.fields.tx1Ref, stateData: t.fields.stateData, heightHint: t.height })) added++;
+        else if (t.height) store2.setHeightHint(t.txId, t.outputIndex, t.height);
       }
     } catch (e) {
       errors.push(`tokens: ${e.message}`);
@@ -12023,6 +12042,7 @@ It's posted to your own address and spends a small network fee. Proceed?`
         else {
           if (store2.reactivate(e.txId, e.outputIndex)) edAdded++;
           store2.setCollectionName(e.txId, e.outputIndex, name);
+          if (e.height) store2.setHeightHint(e.txId, e.outputIndex, e.height);
         }
       }
     } catch (e) {
@@ -15391,7 +15411,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"86ba81a"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"e4b0f9d"} \xB7 ${"2026-11-16"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
