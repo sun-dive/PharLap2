@@ -4378,6 +4378,13 @@
       }
       throw new Error(`Parent tx ${txId} never appeared in a relay mempool \u2014 aborting before the dependent tx to avoid "Missing inputs". Please retry the mint.`);
     }
+    /**
+     * Serve these transactions from memory from now on, without a network request. The caller vouches that
+     * each hex hashes to its txid; one already held is left as it is.
+     */
+    seedTransactions(entries) {
+      for (const e of entries) if (!this.txCache.has(e.txId)) this.txCache.set(e.txId, e.rawHex);
+    }
     async getRawTransaction(txId) {
       const cached = this.txCache.get(txId);
       if (cached) return cached;
@@ -7863,18 +7870,20 @@
     });
     return found;
   }
-  async function scanIncoming(provider2, myPubKeyHex, extraTxIds = []) {
+  async function scanIncoming(provider2, myPubKeyHex, extraTxIds = [], opts = {}) {
+    const since = opts.sinceHeight ?? -1;
+    const readBefore = (h) => since >= 0 && h != null && h > 0 && h <= since;
     const candidateTxIds = new Set(extraTxIds);
     const heightOf = /* @__PURE__ */ new Map();
     try {
       for (const { txId, blockHeight } of await provider2.getFullAddressHistory()) {
-        candidateTxIds.add(txId);
         if (blockHeight > 0) heightOf.set(txId, blockHeight);
+        if (!readBefore(blockHeight)) candidateTxIds.add(txId);
       }
     } catch {
     }
     try {
-      for (const u of await provider2.getUtxos()) candidateTxIds.add(u.txId);
+      for (const u of await provider2.getUtxos()) if (!readBefore(u.height)) candidateTxIds.add(u.txId);
     } catch {
     }
     const found = [];
@@ -10167,11 +10176,37 @@
     return { alias, aliasAt, contacts: contacts2, contactsAt: contactsAt2, changed };
   }
 
+  // src/tokenProtocol.ts
+  function hexToBytes3(hex) {
+    const bytes = [];
+    for (let i = 0; i < hex.length; i += 2) {
+      bytes.push(parseInt(hex.substring(i, i + 2), 16));
+    }
+    return bytes;
+  }
+  function bytesToHex2(bytes) {
+    return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  function doubleSha256(data) {
+    return sha256Bytes(sha256Bytes(data));
+  }
+  function verifyMerkleProof(entry) {
+    let current = hexToBytes3(entry.txId).reverse();
+    for (const node of entry.path) {
+      const sibling = hexToBytes3(node.hash).reverse();
+      const combined = node.position === "R" ? [...current, ...sibling] : [...sibling, ...current];
+      current = doubleSha256(combined);
+    }
+    const computedRoot = bytesToHex2(current.reverse());
+    return computedRoot === entry.merkleRoot;
+  }
+
   // src/markerBackup.ts
-  var MARKER_BACKUP_SCHEMA = 1;
+  var MARKER_BACKUP_SCHEMA = 2;
+  var READABLE_SCHEMAS = [1, 2];
   var MARKER_SATS = 1;
   function emptyMarkerBackup(address2) {
-    return { schema: MARKER_BACKUP_SCHEMA, address: address2, readToHeight: 0, markers: [] };
+    return { schema: MARKER_BACKUP_SCHEMA, address: address2, readToHeight: 0, markers: [], tokens: [] };
   }
   function readMarkers(tx, address2, ownerPubKeyHex) {
     const myScript = toHex(scriptForAddress(address2));
@@ -10194,12 +10229,24 @@
     });
     return { markerVouts, carries };
   }
+  function provenFor(txId, proof) {
+    const p = proof;
+    return p != null && p.txId === txId && Number.isInteger(p.blockHeight) && p.blockHeight > 0 && typeof p.merkleRoot === "string" && Array.isArray(p.path) && verifyMerkleProof(p);
+  }
+  function rawFor(txId, rawHex) {
+    if (typeof rawHex !== "string" || !/^[0-9a-f]+$/i.test(rawHex)) return false;
+    try {
+      return Tx.parse(rawHex).txid() === txId;
+    } catch {
+      return false;
+    }
+  }
   async function updateMarkerBackup(provider2, address2, ownerPubKeyHex, prev) {
     const history2 = await provider2.getFullAddressHistory(address2);
     const byId = new Map(prev.markers.map((m) => [m.txId, { ...m }]));
     let topHeight = prev.readToHeight;
     let lowestFailed = Infinity;
-    let added = 0, fetched = 0;
+    let added = 0, fetched = 0, proved = 0;
     for (const { txId, blockHeight } of history2) {
       if (blockHeight > topHeight) topHeight = blockHeight;
       const known = byId.get(txId);
@@ -10218,14 +10265,35 @@
       }
       const r = readMarkers(tx, address2, ownerPubKeyHex);
       if (r.markerVouts.length === 0 && r.carries.length === 0) continue;
-      byId.set(txId, { txId, markerVouts: r.markerVouts, carries: r.carries, height: blockHeight });
+      byId.set(txId, { txId, markerVouts: r.markerVouts, carries: r.carries, height: blockHeight, rawHex: tx.hex() });
       added++;
+    }
+    for (const m of byId.values()) {
+      if (m.rawHex == null) {
+        try {
+          m.rawHex = (await provider2.getSourceTransaction(m.txId)).hex();
+          fetched++;
+        } catch {
+        }
+      }
+      if (m.height > 0 && m.proof == null) {
+        try {
+          const p = await provider2.getMerkleProof(m.txId);
+          if (p != null && provenFor(m.txId, p)) {
+            m.proof = p;
+            m.height = p.blockHeight;
+            proved++;
+          }
+        } catch {
+        }
+      }
     }
     const readToHeight = lowestFailed === Infinity ? topHeight : Math.min(topHeight, lowestFailed);
     return {
-      backup: { schema: MARKER_BACKUP_SCHEMA, address: address2, readToHeight, markers: [...byId.values()] },
+      backup: { schema: MARKER_BACKUP_SCHEMA, address: address2, readToHeight, markers: [...byId.values()], tokens: prev.tokens },
       added,
-      fetched
+      fetched,
+      proved
     };
   }
   function parseMarkerBackup(text) {
@@ -10238,27 +10306,49 @@
     if (b == null || typeof b !== "object" || typeof b.address !== "string" || !Array.isArray(b.markers)) {
       throw new Error("this file is not a token backup");
     }
-    if (b.schema !== MARKER_BACKUP_SCHEMA) throw new Error(`this backup is format ${b.schema}; this wallet reads format ${MARKER_BACKUP_SCHEMA}`);
+    if (!READABLE_SCHEMAS.includes(b.schema)) throw new Error(`this backup is format ${b.schema}; this wallet reads formats ${READABLE_SCHEMAS.join(" and ")}`);
     const markers = [];
     for (const m of b.markers) {
       if (m == null || typeof m.txId !== "string" || !/^[0-9a-f]{64}$/.test(m.txId)) continue;
-      markers.push({
+      const rec = {
         txId: m.txId,
         markerVouts: Array.isArray(m.markerVouts) ? m.markerVouts.filter((v) => Number.isInteger(v)) : [],
         carries: Array.isArray(m.carries) ? m.carries.filter((c) => c != null && Number.isInteger(c.outputIndex)) : [],
         height: Number.isInteger(m.height) ? m.height : 0
-      });
+      };
+      if (rawFor(m.txId, m.rawHex)) rec.rawHex = m.rawHex;
+      if (provenFor(m.txId, m.proof)) rec.proof = m.proof;
+      markers.push(rec);
     }
-    return { schema: MARKER_BACKUP_SCHEMA, address: b.address, readToHeight: Number.isInteger(b.readToHeight) ? b.readToHeight : 0, markers };
+    const tokens = Array.isArray(b.tokens) ? b.tokens.filter((t) => t != null && typeof t.txId === "string" && /^[0-9a-f]{64}$/.test(t.txId) && Number.isInteger(t.outputIndex) && typeof t.collectionId === "string") : [];
+    return {
+      schema: MARKER_BACKUP_SCHEMA,
+      address: b.address,
+      readToHeight: Number.isInteger(b.readToHeight) ? b.readToHeight : 0,
+      markers,
+      tokens
+    };
+  }
+  function richer(a, b) {
+    const base = a.height === 0 && b.height > 0 ? b : a;
+    return { ...base, rawHex: a.rawHex ?? b.rawHex, proof: a.proof ?? b.proof };
   }
   function mergeMarkerBackups(a, b) {
     if (a.address !== b.address) throw new Error("this backup belongs to a different wallet");
     const byId = new Map(a.markers.map((m) => [m.txId, m]));
     for (const m of b.markers) {
       const have = byId.get(m.txId);
-      if (have == null || have.height === 0 && m.height > 0) byId.set(m.txId, m);
+      byId.set(m.txId, have == null ? m : richer(have, m));
     }
-    return { schema: MARKER_BACKUP_SCHEMA, address: a.address, readToHeight: Math.max(a.readToHeight, b.readToHeight), markers: [...byId.values()] };
+    const tokens = new Map((a.tokens ?? []).map((t) => [`${t.txId}:${t.outputIndex}`, t]));
+    for (const t of b.tokens ?? []) if (!tokens.has(`${t.txId}:${t.outputIndex}`)) tokens.set(`${t.txId}:${t.outputIndex}`, t);
+    return {
+      schema: MARKER_BACKUP_SCHEMA,
+      address: a.address,
+      readToHeight: Math.max(a.readToHeight, b.readToHeight),
+      markers: [...byId.values()],
+      tokens: [...tokens.values()]
+    };
   }
   function markerBackupFileName(address2, handle = "", when = /* @__PURE__ */ new Date()) {
     const safe = handle.replace(/^@+/, "").replace(/[^\p{L}\p{N}._-]+/gu, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 40);
@@ -10268,6 +10358,9 @@
   }
   function markerTxIds(b) {
     return b.markers.map((m) => m.txId);
+  }
+  function heldTransactions(b) {
+    return b.markers.filter((m) => m.rawHex != null).map((m) => ({ txId: m.txId, rawHex: m.rawHex }));
   }
 
   // src/app.ts
@@ -10365,7 +10458,7 @@
     salesCache = null;
     renderWallet();
     markerBackup = loadMarkerBackup(address);
-    void refreshMarkerBackup();
+    provider.seedTransactions(heldTransactions(markerBackup));
   }
   function useWatchKey(watchPubKeyHex) {
     const pub = compressedPubKeyHex(watchPubKeyHex);
@@ -10376,7 +10469,7 @@
     salesCache = null;
     renderWallet();
     markerBackup = loadMarkerBackup(address);
-    void refreshMarkerBackup();
+    provider.seedTransactions(heldTransactions(markerBackup));
   }
   function isWatchOnly() {
     return key == null;
@@ -10397,8 +10490,7 @@
     useWatchKey(pub);
     renderTokens();
     void refreshBalance();
-    setStatus("Watch-only wallet loaded \u2014 recovering holdings from chain\u2026");
-    void onCheckIncoming();
+    restoreTokens();
   }
   function switchWallet(k, recover, mnemonic) {
     localStorage.setItem(WIF_KEY, k.toWif());
@@ -10408,9 +10500,9 @@
     useKey(k);
     renderTokens();
     void refreshBalance();
+    if (!recover) void refreshMarkerBackup();
     if (recover) {
-      setStatus("Wallet restored \u2014 recovering your purchases from chain\u2026");
-      void onCheckIncoming();
+      restoreTokens();
       void restoreConfigFromChain(true).then((n) => {
         if (n > 0) {
           renderContacts();
@@ -12009,13 +12101,26 @@ It's posted to your own address and spends a small network fee. Proceed?`
     nameCache.set(tx1RefHex, name);
     return name;
   }
-  async function onCheckIncoming() {
-    setStatus("Scanning for incoming NFTs and editions\u2026");
+  function backupTxIdsNotHeld() {
+    const held = new Set(store2.list().map((t) => `${t.txId}:${t.outputIndex}`));
+    return markerBackup.markers.filter((m) => m.carries.some((c) => !held.has(`${m.txId}:${c.outputIndex}`))).map((m) => m.txId);
+  }
+  function heldEditionScripts() {
+    const scripts = /* @__PURE__ */ new Map();
+    for (const t of store2.list()) if (t.kind === "edition" && t.lockHex) scripts.set(t.lockHex, t.collectionId);
+    return scripts;
+  }
+  async function onCheckIncoming(opts = {}) {
+    const localFirst = !opts.full && markerBackup.address === address && markerBackup.readToHeight > 0;
+    const since = localFirst ? markerBackup.readToHeight - 1 : -1;
+    setStatus(localFirst ? `Checking for anything new since block ${markerBackup.readToHeight.toLocaleString()}\u2026` : "Scanning the whole chain for your NFTs and editions\u2026");
     let added = 0;
     let edAdded = 0;
     const errors = [];
+    for (const t of store2.list()) if (t.collectionName && t.collectionName !== "Edition" && !nameCache.has(t.collectionId)) nameCache.set(t.collectionId, t.collectionName);
+    const extra = localFirst ? backupTxIdsNotHeld() : markerTxIds(markerBackup);
     try {
-      const incoming = await scanIncoming(provider, pubKeyHex, markerTxIds(markerBackup));
+      const incoming = await scanIncoming(provider, pubKeyHex, extra, localFirst ? { sinceHeight: since } : {});
       for (const t of incoming) {
         const tx = await provider.getSourceTransaction(t.txId);
         const v = await verifyTokenLineage(tx, t.outputIndex, { getRawTransaction: (id) => provider.getSourceTransaction(id) });
@@ -12027,7 +12132,12 @@ It's posted to your own address and spends a small network fee. Proceed?`
       errors.push(`tokens: ${e.message}`);
     }
     try {
-      const editions = await scanIncomingEditions(provider, pubKeyHex, void 0, markerTxIds(markerBackup));
+      const editions = await scanIncomingEditions(
+        provider,
+        pubKeyHex,
+        localFirst ? { scripts: heldEditionScripts(), sinceHeight: since } : void 0,
+        extra
+      );
       for (const e of editions) {
         const name = await resolveCollectionName(e.tx1RefHex);
         if (store2.add({
@@ -12075,9 +12185,12 @@ It's posted to your own address and spends a small network fee. Proceed?`
     }
     return emptyMarkerBackup(addr);
   }
+  function withTokenList(b) {
+    return b.address === address ? { ...b, tokens: store2.list().filter((t) => t.status === "active") } : b;
+  }
   function saveMarkerBackup(b) {
     try {
-      localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(b));
+      localStorage.setItem(MARKERS_KEY_PREFIX + b.address, JSON.stringify(withTokenList(b)));
     } catch {
     }
   }
@@ -12089,8 +12202,9 @@ It's posted to your own address and spends a small network fee. Proceed?`
       return;
     }
     const n = markerBackup.markers.length;
+    const proved = markerBackup.markers.filter((m) => m.proof != null).length;
     const upTo = markerBackup.readToHeight > 0 ? `, read to block ${markerBackup.readToHeight.toLocaleString()}` : "";
-    el.textContent = `${n} transaction${n === 1 ? "" : "s"} recorded${upTo}.`;
+    el.textContent = `${n} transaction${n === 1 ? "" : "s"} recorded (${proved} with a Merkle proof)${upTo}.`;
   }
   async function refreshMarkerBackup() {
     if (markerRefreshRunning) return;
@@ -12100,11 +12214,13 @@ It's posted to your own address and spends a small network fee. Proceed?`
     try {
       const prev = markerBackup.address === forAddress ? markerBackup : loadMarkerBackup(forAddress);
       const { backup } = await updateMarkerBackup(provider, forAddress, pubKeyHex, prev);
+      const current = markerBackup.address === forAddress ? markerBackup : loadMarkerBackup(forAddress);
+      const joined = mergeMarkerBackups(current, backup);
       if (address === forAddress) {
-        markerBackup = backup;
+        markerBackup = joined;
         updateMarkerNote();
       }
-      saveMarkerBackup(backup);
+      saveMarkerBackup(joined);
     } catch (e) {
       if (address === forAddress) updateMarkerNote(`Could not update (${e.message}); the saved record is unchanged.`);
     } finally {
@@ -12112,10 +12228,39 @@ It's posted to your own address and spends a small network fee. Proceed?`
       if (address !== forAddress) void refreshMarkerBackup();
     }
   }
+  var restoreChoicePending = false;
+  function restoreTokens() {
+    if (markerBackup.markers.length > 0 || markerBackup.tokens.length > 0) {
+      void applyBackup(markerBackup, "this browser");
+      return;
+    }
+    restoreChoicePending = true;
+    setStatusHtml('Restore your tokens: <button id="btnRestoreFromFile" class="secondary">Choose backup file</button> <button id="btnRestoreFromChain" class="secondary">Scan the chain</button> <span class="muted">A backup file restores from what you saved; a scan of the chain reads your whole history.</span>');
+    $("btnRestoreFromFile").onclick = () => $("tokBackupFile").click();
+    $("btnRestoreFromChain").onclick = () => {
+      restoreChoicePending = false;
+      void scanWholeChain();
+    };
+  }
+  async function applyBackup(b, from) {
+    provider.seedTransactions(heldTransactions(b));
+    let n = 0;
+    for (const t of b.tokens) if (t.status === "active" && store2.add(t)) n++;
+    renderTokens();
+    updateMarkerNote();
+    setStatus(`Restored ${n} token${n === 1 ? "" : "s"} from ${from}. Checking for anything newer\u2026`);
+    await onCheckIncoming();
+    void refreshMarkerBackup();
+  }
+  async function scanWholeChain() {
+    await onCheckIncoming({ full: true });
+    void refreshMarkerBackup();
+  }
   function onTokenBackupSave() {
     if (markerBackup.address !== address) markerBackup = loadMarkerBackup(address);
-    downloadText(markerBackupFileName(address, getMyAlias()), JSON.stringify(markerBackup, null, 1), "application/json");
-    setStatus(`Saved a token backup of ${markerBackup.markers.length} transactions. It holds no keys.`, "ok");
+    const file = withTokenList(markerBackup);
+    downloadText(markerBackupFileName(address, getMyAlias()), JSON.stringify(file, null, 1), "application/json");
+    setStatus(`Saved a token backup: ${file.tokens.length} tokens and ${file.markers.length} transactions. It holds no keys.`, "ok");
   }
   async function onTokenBackupRestore() {
     const text = await readFileText($("tokBackupFile"));
@@ -12127,10 +12272,9 @@ It's posted to your own address and spends a small network fee. Proceed?`
       const file = parseMarkerBackup(text);
       const here = markerBackup.address === address ? markerBackup : loadMarkerBackup(address);
       markerBackup = mergeMarkerBackups(here, file);
+      restoreChoicePending = false;
       saveMarkerBackup(markerBackup);
-      updateMarkerNote();
-      setStatus(`Read ${file.markers.length} transactions from the backup. Recovering your tokens\u2026`);
-      await onCheckIncoming();
+      await applyBackup(markerBackup, "the backup file");
     } catch (e) {
       setStatus(`Restore failed: ${e.message}`, "error");
     }
@@ -15417,7 +15561,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"536c73f"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"49414f9"} \xB7 ${"2026-11-16"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
@@ -15428,6 +15572,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
         useKey(loadKey());
       }
     } else useKey(loadKey());
+    void refreshMarkerBackup();
     try {
       if (localStorage.getItem("p2:nftview") === "grid") nftView = "grid";
     } catch {
@@ -15503,6 +15648,10 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
     $("btnIncoming").onclick = () => void onCheckIncoming();
     $("btnTokBackupSave").onclick = () => onTokenBackupSave();
     $("btnTokBackupRestore").onclick = () => void onTokenBackupRestore();
+    $("btnTokFullScan").onclick = () => void scanWholeChain();
+    $("tokBackupFile").addEventListener("change", () => {
+      if (restoreChoicePending) void onTokenBackupRestore();
+    });
     $("btnSendMessage").onclick = () => void onSendMessage();
     $("btnCheckMessages").onclick = () => void onCheckMessages();
     $("msgTo").addEventListener("input", updateMsgToName);
@@ -15546,7 +15695,6 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
       switchWallet(k, true, phrase);
       markBackedUp();
       $("restoreSeed").value = "";
-      setStatus("Wallet restored from seed phrase \u2014 recovering from chain\u2026", "ok");
     };
     $("btnWatchLoad").onclick = () => {
       const pk = val("watchPubKey");
