@@ -232,6 +232,10 @@ let afterFirst
   const held = await EB.scanIncomingEditions(old, HOLDER.pub, { scripts: new Map([[toHex(genesis.tx.outputs[ev].script), TX1]]), sinceHeight: 100 }, [])
   ok(held.some(f => f.txId === genesis.txId && f.outputIndex === ev), '★★ an edition the list holds is found where it now is, from its script')
   ok(read.filter(id => id === genesis.txId).length <= 1, `★ …the old transaction read at most once, for its note (${read.length})`)
+  // a restore from a file: the list is empty, the history names the transaction as already read, and only
+  // the backup says to read it. ⚠ It must be read: a height from the history must not turn it into a skip.
+  const restored = await EB.scanIncomingEditions(old, HOLDER.pub, { scripts: new Map(), sinceHeight: 100 }, [genesis.txId])
+  ok(restored.some(f => f.txId === genesis.txId && f.outputIndex === ev), '★★★ a transaction the backup names is read even when the history calls it old')
 }
 
 rmSync(tmp, { recursive: true, force: true })

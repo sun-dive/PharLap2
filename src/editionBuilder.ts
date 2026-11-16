@@ -997,7 +997,7 @@ export async function scanIncomingEditions(
    *  watermark are always re-scanned, so a fresh onboard is never missed. `scripts` is mutated with new discoveries
    *  for the caller to persist. Pass 2 (below) still runs over ALL scripts every time, so live holdings stay exact. */
   cache?: { scripts: Map<string, string>; sinceHeight: number },
-  /** Transactions to read whatever the history says: the wallet's marker backup. Height unknown, so never skipped. */
+  /** Transactions to read whatever the history says: the wallet's marker backup. Always read, never skipped. */
   extraTxIds: string[] = [],
 ): Promise<IncomingEdition[]> {
   const mine = pubKeyHex.toLowerCase()
@@ -1008,8 +1008,11 @@ export async function scanIncomingEditions(
   try { for (const u of await provider.getUtxos()) if (!cand.has(u.txId)) cand.set(u.txId, u.height || 0) } catch { /* best-effort */ }
   const scripts = new Map<string, string>(cache?.scripts ?? []) // lockHex -> tx1RefHex (seeded from cache)
   const since = cache?.sinceHeight ?? -1
+  // ⚠ The history gives a height to every transaction it lists, the backup's included, so the watermark below
+  //   would skip a backup transaction as "already discovered" when this list has never seen it.
+  const alwaysRead = new Set(extraTxIds)
   for (const [txId, h] of cand) {
-    if (since >= 0 && h > 0 && h <= since) continue // confirmed at/below the watermark — already discovered
+    if (!alwaysRead.has(txId) && since >= 0 && h > 0 && h <= since) continue // confirmed at/below the watermark — already discovered
     let tx: Tx
     try { tx = await provider.getSourceTransaction(txId) } catch { continue }
     for (const o of tx.outputs) {
