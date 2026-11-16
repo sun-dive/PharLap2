@@ -195,7 +195,7 @@ function switchToWatch(watchPubKeyHex: string): void {
 
 /**
  * Switch the active wallet. The local token store is a CACHE belonging to the previous wallet, so clear it
- * and (on a restore) rebuild this wallet's holdings: from its token backup first, the chain only for what the
+ * and (on a restore) rebuild this wallet's holdings: from its token backup first, its history only for what the
  * backup does not hold. A fresh random wallet has nothing to recover.
  */
 function switchWallet(k: Signer, recover: boolean, mnemonic?: string): void {
@@ -1704,14 +1704,14 @@ function heldEditionScripts(): Map<string, string> {
 
 /**
  * Find new and moved tokens. LOCAL FIRST: when this wallet has a token backup, only transactions above its last
- * block are read from the chain, plus any it records whose tokens are not in the list; every held edition is
+ * block are read from the wallet's history, plus any it records whose tokens are not in the list; every held edition is
  * still checked for where it now is. `full` reads the whole history instead: the fallback with no backup.
  */
 async function onCheckIncoming(opts: { full?: boolean } = {}): Promise<void> {
   const localFirst = !opts.full && markerBackup.address === address && markerBackup.readToHeight > 0
   const since = localFirst ? markerBackup.readToHeight - 1 : -1 // the top block read is read again
   setStatus(localFirst ? `Checking for anything new since block ${markerBackup.readToHeight.toLocaleString()}…`
-    : 'Scanning the whole chain for your NFTs and editions…')
+    : 'Reading your wallet\'s whole history for your NFTs and editions…')
   let added = 0
   let edAdded = 0
   const errors: string[] = []
@@ -1820,21 +1820,21 @@ async function refreshMarkerBackup(): Promise<void> {
   }
 }
 
-/** Set while a restore waits for the person to choose: a backup file, or a scan of the chain. */
+/** Set while a restore waits for the person to choose: a backup file, or reading the wallet's whole history. */
 let restoreChoicePending = false
 
-/** After a restore: apply what this browser already holds for the wallet, or ask before reading the chain. */
+/** After a restore: apply what this browser already holds for the wallet, or ask before reading its history. */
 function restoreTokens(): void {
   if (markerBackup.markers.length > 0 || markerBackup.tokens.length > 0) { void applyBackup(markerBackup, 'this browser'); return }
   restoreChoicePending = true
   setStatusHtml('Restore your tokens: <button id="btnRestoreFromFile" class="secondary">Choose backup file</button> ' +
-    '<button id="btnRestoreFromChain" class="secondary">Scan the chain</button> ' +
-    '<span class="muted">A backup file restores from what you saved; a scan of the chain reads your whole history.</span>')
+    '<button id="btnRestoreFromHistory" class="secondary">Read wallet history</button> ' +
+    '<span class="muted">A backup file restores from what you saved; reading your wallet\'s whole history takes longer.</span>')
   $('btnRestoreFromFile').onclick = () => ($('tokBackupFile') as HTMLInputElement).click()
-  $('btnRestoreFromChain').onclick = () => { restoreChoicePending = false; void scanWholeChain() }
+  $('btnRestoreFromHistory').onclick = () => { restoreChoicePending = false; void rescanWalletHistory() }
 }
 
-/** Put a backup's tokens and transactions in place, then read from the chain only what is newer. */
+/** Put a backup's tokens and transactions in place, then read from the wallet's history only what is newer. */
 async function applyBackup(b: MarkerBackup, from: string): Promise<void> {
   provider.seedTransactions(heldTransactions(b))
   let n = 0
@@ -1847,7 +1847,7 @@ async function applyBackup(b: MarkerBackup, from: string): Promise<void> {
 }
 
 /** The fallback with no backup: read the whole history, then record it. */
-async function scanWholeChain(): Promise<void> {
+async function rescanWalletHistory(): Promise<void> {
   await onCheckIncoming({ full: true })
   void refreshMarkerBackup()
 }
@@ -5028,7 +5028,7 @@ function init(): void {
   $('btnIncoming').onclick = () => void onCheckIncoming()
   $('btnTokBackupSave').onclick = () => onTokenBackupSave()
   $('btnTokBackupRestore').onclick = () => void onTokenBackupRestore()
-  $('btnTokFullScan').onclick = () => void scanWholeChain()
+  $('btnTokRescan').onclick = () => void rescanWalletHistory()
   // A restore waiting on "Choose backup file" goes ahead as soon as one is chosen.
   ;($('tokBackupFile') as HTMLInputElement).addEventListener('change', () => { if (restoreChoicePending) void onTokenBackupRestore() })
   $('btnSendMessage').onclick = () => void onSendMessage()

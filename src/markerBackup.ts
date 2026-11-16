@@ -1,7 +1,7 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
  * THE MARKER BACKUP: every transaction that brought this wallet a 1-sat marker or a token, held or spent,
- * kept whole, with its Merkle proof, so a restore reads the chain only for what is newer than the backup.
+ * kept whole, with its Merkle proof, so a restore reads the wallet's history only for what is newer than the backup.
  *
  * A token's transaction pays its holder a 1-sat P2PKH marker, and the wallet finds the token through it. A
  * spent marker is no longer an unspent coin, and once its transaction is old enough the explorer's newest
