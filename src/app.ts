@@ -46,7 +46,7 @@ import { cachedThumb, thumbResolved, cacheNoThumb, makeThumb, cachedMime, cacheM
 import { publishProfile, resolveProfile } from './profile.ts'
 import { readCorridor, postToNodeFeed, type CorridorNode, type DiscPost } from './discussion.ts'
 import { publishConfigBackup, resolveConfigBackup, mergeConfig } from './configBackup.ts'
-import { emptyMarkerBackup, updateMarkerBackup, parseMarkerBackup, mergeMarkerBackups, markerTxIds, type MarkerBackup } from './markerBackup.ts'
+import { emptyMarkerBackup, updateMarkerBackup, parseMarkerBackup, mergeMarkerBackups, markerTxIds, markerBackupFileName, type MarkerBackup } from './markerBackup.ts'
 import { unwrapContentKey, decryptContent } from './contentCrypto.ts'
 import { decompress } from './compress.ts'
 
@@ -1787,7 +1787,7 @@ async function refreshMarkerBackup(): Promise<void> {
 
 function onTokenBackupSave(): void {
   if (markerBackup.address !== address) markerBackup = loadMarkerBackup(address)
-  downloadText(`smartnfts-token-backup-${address.slice(0, 8)}.json`, JSON.stringify(markerBackup, null, 1), 'application/json')
+  downloadText(markerBackupFileName(address, getMyAlias()), JSON.stringify(markerBackup, null, 1), 'application/json')
   setStatus(`Saved a token backup of ${markerBackup.markers.length} transactions. It holds no keys.`, 'ok')
 }
 

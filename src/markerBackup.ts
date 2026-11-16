@@ -149,6 +149,19 @@ export function mergeMarkerBackups(a: MarkerBackup, b: MarkerBackup): MarkerBack
   return { schema: MARKER_BACKUP_SCHEMA, address: a.address, readToHeight: Math.max(a.readToHeight, b.readToHeight), markers: [...byId.values()] }
 }
 
+/**
+ * The file name a backup is saved under: led by the wallet's handle when it has one, and ending with the
+ * local date and time it was saved, since copying a file does not always keep its creation date. Letters
+ * and digits of any script are kept in the handle; anything else becomes `-`, and a leading dot is dropped
+ * so the file is never hidden. No colons, which some systems refuse in a file name.
+ */
+export function markerBackupFileName(address: string, handle = '', when: Date = new Date()): string {
+  const safe = handle.replace(/^@+/, '').replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40)
+  const two = (n: number): string => String(n).padStart(2, '0')
+  const stamp = `${when.getFullYear()}-${two(when.getMonth() + 1)}-${two(when.getDate())}_${two(when.getHours())}${two(when.getMinutes())}`
+  return `${safe === '' ? '' : safe + '-'}smartnfts-token-backup-${address.slice(0, 8)}_${stamp}.json`
+}
+
 /** The transactions a scan should read, whatever the explorer's history says. */
 export function markerTxIds(b: MarkerBackup): string[] {
   return b.markers.map(m => m.txId)

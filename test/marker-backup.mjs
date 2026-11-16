@@ -136,6 +136,20 @@ let afterFirst
   ok(throws(() => MB.mergeMarkerBackups(afterFirst, MB.emptyMarkerBackup(stranger.address())), 'different wallet'), '⛔ a backup of another wallet is refused')
 }
 
+// ── ★ the file is named after the wallet's handle ───────────────────────────────────────────────────
+{
+  const A = '1TestAdr' + 'x'.repeat(26)
+  const T = new Date(2026, 10, 16, 9, 5) // local time, single-digit hour and minute
+  const name = h => MB.markerBackupFileName(A, h, T)
+  ok(name('') === 'smartnfts-token-backup-1TestAdr_2026-11-16_0905.json', `★ with no handle, the plain name and the local date and time (${name('')})`)
+  ok(name('alice') === 'alice-smartnfts-token-backup-1TestAdr_2026-11-16_0905.json', '★★ the handle leads the name')
+  ok(name('@al ice/x') === 'al-ice-x-smartnfts-token-backup-1TestAdr_2026-11-16_0905.json', '⚠ an @, a space and a slash never reach the file name')
+  ok(name('小明') === '小明-smartnfts-token-backup-1TestAdr_2026-11-16_0905.json', '★ a handle in Chinese is kept as it is')
+  ok(name('..hidden') === 'hidden-smartnfts-token-backup-1TestAdr_2026-11-16_0905.json', '⛔ a leading dot is dropped, so the file is never hidden')
+  ok(name('///') === 'smartnfts-token-backup-1TestAdr_2026-11-16_0905.json', '★ a handle with nothing usable falls back to the plain name')
+  ok(!MB.markerBackupFileName(A, 'alice').includes(':'), '⛔ no colon in a name made from the current time')
+}
+
 // ── ★★★ 4 · restore: the backup finds an edition that neither the history nor the coins name ────────
 {
   const byId = new Map([[genesis.txId, genesis.tx]])
