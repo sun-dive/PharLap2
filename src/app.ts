@@ -1769,6 +1769,8 @@ async function onCheckIncoming(opts: { full?: boolean } = {}): Promise<void> {
 const MARKERS_KEY_PREFIX = 'p2:markers:'
 let markerBackup: MarkerBackup = emptyMarkerBackup('')
 let markerRefreshRunning = false
+/** Restores and rescans still checking the wallet's history. A count: a key restore and a file restore can overlap. */
+let markerChecks = 0
 
 function loadMarkerBackup(addr: string): MarkerBackup {
   try {
@@ -1817,7 +1819,9 @@ function updateMarkerNote(text?: string): void {
   const n = markerBackup.markers.length
   const proved = markerBackup.markers.filter(m => m.proof != null).length
   const upTo = markerBackup.readToHeight > 0 ? `, read to block ${markerBackup.readToHeight.toLocaleString()}` : ''
-  el.textContent = `${n} transaction${n === 1 ? '' : 's'} recorded (${proved} with a Merkle proof)${upTo}.`
+  // While work runs, the count shown is from before it: say so, or it reads as the result.
+  const busy = markerRefreshRunning || markerChecks > 0 ? ' Checking for newer transactions…' : ''
+  el.textContent = `${n} transaction${n === 1 ? '' : 's'} recorded (${proved} with a Merkle proof)${upTo}.${busy}`
 }
 
 /**
@@ -1828,19 +1832,21 @@ async function refreshMarkerBackup(): Promise<void> {
   if (markerRefreshRunning) return
   markerRefreshRunning = true
   const forAddress = address
-  updateMarkerNote('Updating…')
+  updateMarkerNote()
+  let failed: string | undefined
   try {
     const prev = markerBackup.address === forAddress ? markerBackup : loadMarkerBackup(forAddress)
     const { backup } = await updateMarkerBackup(provider, forAddress, pubKeyHex, prev)
     const current = markerBackup.address === forAddress ? markerBackup : loadMarkerBackup(forAddress)
     const joined = mergeMarkerBackups(current, backup)
-    if (address === forAddress) { markerBackup = joined; updateMarkerNote() }
+    if (address === forAddress) markerBackup = joined
     saveMarkerBackup(joined)
   } catch (e) {
-    if (address === forAddress) updateMarkerNote(`Could not update (${(e as Error).message}); the saved record is unchanged.`)
+    failed = `Could not update (${(e as Error).message}); the saved record is unchanged.`
   } finally {
     markerRefreshRunning = false
-    if (address !== forAddress) void refreshMarkerBackup()
+    if (address === forAddress) updateMarkerNote(failed)
+    else void refreshMarkerBackup()
   }
 }
 
@@ -1870,15 +1876,21 @@ async function applyBackup(b: MarkerBackup, from: string): Promise<void> {
   let n = 0
   for (const t of b.tokens) if (t.status === 'active' && store.add(t)) n++
   renderTokens()
-  updateMarkerNote()
   setStatus(`Restored ${n} token${n === 1 ? '' : 's'} from ${from}. Checking for anything newer…`)
-  await onCheckIncoming()
-  void refreshMarkerBackup()
+  await checkForNewer()
 }
 
 /** The fallback with no backup: read the whole history, then record it. */
 async function rescanWalletHistory(): Promise<void> {
-  await onCheckIncoming({ full: true })
+  await checkForNewer({ full: true })
+}
+
+/** Check the wallet's history, then bring the backup up to date. The backup line says it is checking until both
+ *  are done. */
+async function checkForNewer(opts: { full?: boolean } = {}): Promise<void> {
+  markerChecks++
+  updateMarkerNote()
+  try { await onCheckIncoming(opts) } finally { markerChecks-- }
   void refreshMarkerBackup()
 }
 
