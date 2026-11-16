@@ -1760,9 +1760,8 @@ function updateMarkerNote(text?: string): void {
   const el = document.getElementById('tokBackupNote'); if (el == null) return
   if (text != null) { el.textContent = text; return }
   const n = markerBackup.markers.length
-  el.textContent = markerBackup.readToHeight > 0
-    ? `${n} transaction${n === 1 ? '' : 's'} recorded, read to block ${markerBackup.readToHeight.toLocaleString()}.`
-    : 'Not read yet.'
+  const upTo = markerBackup.readToHeight > 0 ? `, read to block ${markerBackup.readToHeight.toLocaleString()}` : ''
+  el.textContent = `${n} transaction${n === 1 ? '' : 's'} recorded${upTo}.`
 }
 
 /** Bring this wallet's token backup up to date. A wallet switched mid-run gets its own run straight after. */
