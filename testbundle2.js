@@ -12230,20 +12230,19 @@ It's posted to your own address and spends a small network fee. Proceed?`
     }
   }
   var restoreChoicePending = false;
+  function showRestoreChoice(on) {
+    restoreChoicePending = on;
+    $("restoreChoice").style.display = on ? "" : "none";
+  }
   function restoreTokens() {
     if (markerBackup.markers.length > 0 || markerBackup.tokens.length > 0) {
       void applyBackup(markerBackup, "this browser");
       return;
     }
-    restoreChoicePending = true;
-    setStatusHtml(`Restore your tokens: <button id="btnRestoreFromFile" class="secondary">Choose backup file</button> <button id="btnRestoreFromHistory" class="secondary">Read wallet history</button> <span class="muted">A backup file restores from what you saved; reading your wallet's whole history takes longer.</span>`);
-    $("btnRestoreFromFile").onclick = () => $("tokBackupFile").click();
-    $("btnRestoreFromHistory").onclick = () => {
-      restoreChoicePending = false;
-      void rescanWalletHistory();
-    };
+    showRestoreChoice(true);
   }
   async function applyBackup(b, from) {
+    showRestoreChoice(false);
     provider.seedTransactions(heldTransactions(b));
     let n = 0;
     for (const t of b.tokens) if (t.status === "active" && store2.add(t)) n++;
@@ -12273,7 +12272,6 @@ It's posted to your own address and spends a small network fee. Proceed?`
       const file = parseMarkerBackup(text);
       const here = markerBackup.address === address ? markerBackup : loadMarkerBackup(address);
       markerBackup = mergeMarkerBackups(here, file);
-      restoreChoicePending = false;
       saveMarkerBackup(markerBackup);
       await applyBackup(markerBackup, "the backup file");
     } catch (e) {
@@ -15562,7 +15560,7 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"6d15cd2"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"9659104"} \xB7 ${"2026-11-16"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
     if (watch != null) {
@@ -15650,6 +15648,11 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
     $("btnTokBackupSave").onclick = () => onTokenBackupSave();
     $("btnTokBackupRestore").onclick = () => void onTokenBackupRestore();
     $("btnTokRescan").onclick = () => void rescanWalletHistory();
+    $("btnRestoreFromFile").onclick = () => $("tokBackupFile").click();
+    $("btnRestoreFromHistory").onclick = () => {
+      showRestoreChoice(false);
+      void rescanWalletHistory();
+    };
     $("tokBackupFile").addEventListener("change", () => {
       if (restoreChoicePending) void onTokenBackupRestore();
     });
