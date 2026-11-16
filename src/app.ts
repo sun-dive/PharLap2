@@ -1703,7 +1703,8 @@ async function onCheckIncoming(): Promise<void> {
       const tx = await provider.getSourceTransaction(t.txId)
       const v = await verifyTokenLineage(tx, t.outputIndex, { getRawTransaction: id => provider.getSourceTransaction(id) })
       if (!v.valid) continue
-      if (store.add({ txId: t.txId, outputIndex: t.outputIndex, collectionId: t.fields.tx1Ref, stateData: t.fields.stateData })) added++
+      if (store.add({ txId: t.txId, outputIndex: t.outputIndex, collectionId: t.fields.tx1Ref, stateData: t.fields.stateData, heightHint: t.height })) added++
+      else if (t.height) store.setHeightHint(t.txId, t.outputIndex, t.height) // a token stored before its height was kept
     }
   } catch (e) { errors.push(`tokens: ${(e as Error).message}`) }
 
@@ -1725,6 +1726,7 @@ async function onCheckIncoming(): Promise<void> {
         // A retired entry the chain still shows unspent comes back: the scan is the authority, not the last click.
         if (store.reactivate(e.txId, e.outputIndex)) edAdded++
         store.setCollectionName(e.txId, e.outputIndex, name) // backfill the real title on older "Edition" entries
+        if (e.height) store.setHeightHint(e.txId, e.outputIndex, e.height) // and the block, on entries stored without it
       }
     }
   } catch (e) { errors.push(`editions: ${(e as Error).message}`) }

@@ -112,6 +112,7 @@ export class PharLapStore {
     sellerNote?: string
     bonusKind?: 'link' | 'code'
     bonusValue?: string
+    heightHint?: number
   }): boolean {
     const tokens = this.list()
     const k = outpointKey(token)
@@ -136,9 +137,24 @@ export class PharLapStore {
       sellerNote: token.sellerNote,
       bonusKind: token.bonusKind,
       bonusValue: token.bonusValue,
+      heightHint: token.heightHint,
     })
     this.write(tokens)
     return true
+  }
+
+  /** Record the block a stored token's transaction is in. Returns true if anything changed. */
+  setHeightHint(txId: string, outputIndex: number, heightHint: number): boolean {
+    if (!(heightHint > 0)) return false
+    const k = outpointKey({ txId, outputIndex })
+    let changed = false
+    const tokens = this.list().map(t => {
+      if (outpointKey(t) !== k || t.heightHint === heightHint) return t
+      changed = true
+      return { ...t, heightHint }
+    })
+    if (changed) this.write(tokens)
+    return changed
   }
 
   /** Cache the publisher's recovered full pubkey on every held copy of a collection (set lazily after a

@@ -214,6 +214,8 @@ export interface IncomingToken {
   txId: string
   outputIndex: number
   fields: TokenFields
+  /** Block height of the carrying transaction; undefined while unconfirmed or unknown. */
+  height?: number
 }
 
 /**
@@ -232,8 +234,12 @@ export async function scanIncoming(
   // The latter is mempool-aware (getUtxos includes unconfirmed), so the 1-sat notification
   // output of an incoming transfer surfaces the carrying tx immediately, before it confirms.
   const candidateTxIds = new Set<string>(extraTxIds)
+  const heightOf = new Map<string, number>()
   try {
-    for (const { txId } of await provider.getFullAddressHistory()) candidateTxIds.add(txId)
+    for (const { txId, blockHeight } of await provider.getFullAddressHistory()) {
+      candidateTxIds.add(txId)
+      if (blockHeight > 0) heightOf.set(txId, blockHeight)
+    }
   } catch { /* history is best-effort */ }
   try {
     for (const u of await provider.getUtxos()) candidateTxIds.add(u.txId)
@@ -248,7 +254,7 @@ export async function scanIncoming(
       continue
     }
     for (const { outputIndex, fields } of findOwnedTokenOutputs(tx, myPubKeyHex)) {
-      found.push({ txId, outputIndex, fields })
+      found.push({ txId, outputIndex, fields, height: heightOf.get(txId) })
     }
   }
   return found
