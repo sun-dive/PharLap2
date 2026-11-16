@@ -35,17 +35,23 @@ const TX1 = 'a5'.repeat(31) + '03'
 const terms = { publisherPubKeyHash: Array.from(publisher.hash160()), publisherFeeSats: 500, holderFeeSats: 1500, tokenSats: 1000 }
 const funding = (n, sats) => [{ utxo: { txId: 'bb'.repeat(31) + n.toString(16).padStart(2, '0'), outputIndex: 0, satoshis: sats, script: '' } }]
 
-/** A fake network holding known transactions. History is served per address from the outputs paying it. */
-function net(txs, heights) {
+/**
+ * A fake network holding known transactions. History is served per address from the outputs paying it.
+ * `window` models WhatsOnChain's `/history`, which answers only the newest N; the full history has them all.
+ * `getUtxos` is always empty: no marker survives, so history is the only way a scan can find a token.
+ */
+function net(txs, heights, { window = Infinity } = {}) {
   const byId = new Map(txs.map(t => [t.txid(), t]))
   const spent = new Set(txs.flatMap(t => t.inputs.map(i => `${toHex(i.txid)}:${i.vout}`)))
   const wireOf = id => toHex(Uint8Array.from(Buffer.from(id, 'hex')).reverse())
+  const all = () => txs.map(t => ({ txId: t.txid(), blockHeight: heights.get(t.txid()) ?? 0 }))
   return {
     getAddress() { return '' },
     async getSourceTransaction(id) { const t = byId.get(id); if (!t) throw new Error(`no tx ${id}`); return t },
     async getUtxos() { return [] },
     // ⚠ served for EVERY address: the scans' own checks are what keep the wrong key's editions out
-    async getAddressHistory() { return txs.map(t => ({ txId: t.txid(), blockHeight: heights.get(t.txid()) ?? 0 })) },
+    async getAddressHistory() { return all().sort((a, b) => b.blockHeight - a.blockHeight).slice(0, window) },
+    async getFullAddressHistory() { return all() },
     async getUnspentByScriptHash(sh) {
       const out = []
       for (const t of txs) t.outputs.forEach((o, i) => {
@@ -93,6 +99,19 @@ const genesis = await EB.buildEditionGenesisTx({ key: publisher, funding: fundin
   const r = await EB.scanCollectionBuyers(p, { collectionId: TX1, publisherPubKeyHashHex: toHex(publisher.hash160()) })
   ok(r.buyers.length === 1 && r.buyers[0].pubKeyHex === toHex(buyer.publicKey()) && r.buyers[0].count === 1, '★★★ the publisher\'s buyer scan names the buyer once')
   ok(r.scanned === 2 && r.capped === false, '★ …having read both transactions, uncapped')
+}
+
+// ── ★★★ 3 · an edition older than the newest-history window, with no marker left, is still found ─────
+// The lost-token case: the marker was spent, so the UTXO set is no help, and the edition's transaction has
+// been pushed out of the newest window by later ones. Only the full history still names it.
+{
+  const later = await EB.buildEditionGenesisTx({ key: publisher, funding: funding(3, 300000), tx1Ref: TX1, terms, ownerPubKey: Array.from(buyer.publicKey()) })
+  const p = net([genesis.tx, later.tx], new Map([[genesis.txId, 900001], [later.txId, 900050]]), { window: 1 })
+  const windowed = await p.getAddressHistory()
+  ok(windowed.length === 1 && windowed[0].txId === later.txId, '⚠ the newest-only window no longer names the holder\'s edition')
+  const found = await EB.scanIncomingEditions(p, toHex(holder.publicKey()))
+  ok(found.length === 1 && found[0].txId === genesis.txId && found[0].outputIndex === genesis.editionVouts[0],
+     `★★★ the holder's scan still finds it, through the full history (${found.length})`)
 }
 
 rmSync(tmp, { recursive: true, force: true })

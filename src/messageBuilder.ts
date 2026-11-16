@@ -142,7 +142,7 @@ export async function scanIncomingMessages(provider: WalletProvider, recipientPr
   const myPub = toHex(recipientPriv.publicKey()).toLowerCase()
   const candidateTxIds = new Set<string>()
   const heightByTx = new Map<string, number>()
-  try { for (const h of await provider.getAddressHistory()) { candidateTxIds.add(h.txId); heightByTx.set(h.txId, h.blockHeight || 0) } } catch { /* best-effort */ }
+  try { for (const h of await provider.getFullAddressHistory()) { candidateTxIds.add(h.txId); heightByTx.set(h.txId, h.blockHeight || 0) } } catch { /* best-effort */ }
   try { for (const u of await provider.getUtxos()) candidateTxIds.add(u.txId) } catch { /* best-effort */ }
 
   const found: IncomingMessage[] = []

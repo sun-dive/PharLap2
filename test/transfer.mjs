@@ -97,6 +97,7 @@ for (const c of V.cases) {
     async broadcast(h) { sent.push(h); const t = Tx.parse(h); byId.set(t.txid(), t); return t.txid() },
     registerPendingTx() {},
     async getAddressHistory() { return sent.map(h => ({ txId: Tx.parse(h).txid(), blockHeight: 1 })) },
+    async getFullAddressHistory() { return sent.map(h => ({ txId: Tx.parse(h).txid(), blockHeight: 1 })) },
   }
   const r = await TR.createTransfer(provider, key, { tokenTxId: genesis.txid(), tokenOutputIndex: 0, recipientPubKeyHex: V.recipientPub })
   ok(sent.length === 1 && sent[0] === V.wrapper.hex, '★★★ createTransfer broadcasts the deployed bytes')

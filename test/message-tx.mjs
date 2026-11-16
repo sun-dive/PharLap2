@@ -68,6 +68,7 @@ for (const c of V.cases) {
     registerPendingTx() {},
     // the notification output puts the carrying tx in the RECIPIENT's history; nobody else's
     async getAddressHistory() { return who === recipient ? sent.map(h => ({ txId: Tx.parse(h).txid(), blockHeight: 0 })) : [] },
+    async getFullAddressHistory() { return who === recipient ? sent.map(h => ({ txId: Tx.parse(h).txid(), blockHeight: 0 })) : [] },
   })
   const parts = [{ kind: 'text', text: 'your unlock key + a bonus 🎁' }, { kind: 'key', key: Array.from({ length: 32 }, (_, i) => (i * 3) & 0xff) }]
   const s = await MB.sendMessage(net(sender), sender, { toPubKeyHex: toHex(recipient.publicKey()), parts, senderAlias: 'al', sentAt: 1757500000000 })

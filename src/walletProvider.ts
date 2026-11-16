@@ -543,6 +543,48 @@ export class WalletProvider {
     }))
   }
 
+  /**
+   * EVERY transaction touching an address, confirmed and unconfirmed.
+   *
+   * ⚠⚠ `getAddressHistory` reads `/history`, which answers only the NEWEST 100. A token whose 1-sat marker
+   *   has been spent is no longer in the UTXO set either, so once its transaction is older than that window
+   *   nothing finds it. Measured: an address with 194 transactions, 9 of its 21 tokens outside the window.
+   *   ⇒ `/confirmed/history` pages through all of it (`?token=` + the previous page's `nextPageToken`), and
+   *     `/unconfirmed/history` adds what is not in a block yet.
+   *
+   * Every page goes through the same queue as every other request. A failed page throws rather than
+   * returning what was read so far: a short history looks exactly like a complete one.
+   */
+  async getFullAddressHistory(address: string = this.getAddress()): Promise<{ txId: string; blockHeight: number }[]> {
+    const heights = new Map<string, number>()
+    const rowsOf = (data: any): any[] => Array.isArray(data?.result) ? data.result : (Array.isArray(data) ? data : [])
+    const tokens = new Set<string>()
+    let token = ''
+    for (;;) {
+      const query = token === '' ? '' : `?token=${encodeURIComponent(token)}`
+      const resp = await fetchWithRetry(`${WOC_BASE}/address/${address}/confirmed/history${query}`)
+      if (resp.status === 404) break // an address never seen has an empty history
+      if (!resp.ok) throw new Error(`WoC confirmed history fetch failed: ${resp.status}`)
+      const data = await resp.json()
+      const rows = rowsOf(data)
+      for (const r of rows) heights.set(r.tx_hash as string, (r.height ?? 0) as number)
+      const next = typeof data?.nextPageToken === 'string' ? data.nextPageToken : ''
+      // An empty page, no token or a token already followed ends the walk: each is the last page.
+      if (rows.length === 0 || next === '' || tokens.has(next)) break
+      tokens.add(next)
+      token = next
+    }
+    const pending = await fetchWithRetry(`${WOC_BASE}/address/${address}/unconfirmed/history`)
+    if (pending.ok) {
+      for (const r of rowsOf(await pending.json())) {
+        if (!heights.has(r.tx_hash as string)) heights.set(r.tx_hash as string, 0)
+      }
+    } else if (pending.status !== 404) {
+      throw new Error(`WoC unconfirmed history fetch failed: ${pending.status}`)
+    }
+    return [...heights].map(([txId, blockHeight]) => ({ txId, blockHeight }))
+  }
+
   // ── Script-hash UTXOs (find covenant outputs not at our address) ──
 
   /**

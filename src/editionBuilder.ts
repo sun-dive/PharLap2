@@ -1002,7 +1002,7 @@ export async function scanIncomingEditions(
 
   // Pass 1 — discover distinct edition scripts (lockHex) this pubkey holds/held, from address breadcrumbs.
   const cand = new Map<string, number>() // txId -> height (0 = unconfirmed/unknown)
-  try { for (const e of await provider.getAddressHistory()) cand.set(e.txId, e.blockHeight || 0) } catch { /* best-effort */ }
+  try { for (const e of await provider.getFullAddressHistory()) cand.set(e.txId, e.blockHeight || 0) } catch { /* best-effort */ }
   try { for (const u of await provider.getUtxos()) if (!cand.has(u.txId)) cand.set(u.txId, u.height || 0) } catch { /* best-effort */ }
   const scripts = new Map<string, string>(cache?.scripts ?? []) // lockHex -> tx1RefHex (seeded from cache)
   const since = cache?.sinceHeight ?? -1

@@ -231,7 +231,7 @@ export async function scanIncoming(
   // output of an incoming transfer surfaces the carrying tx immediately, before it confirms.
   const candidateTxIds = new Set<string>()
   try {
-    for (const { txId } of await provider.getAddressHistory()) candidateTxIds.add(txId)
+    for (const { txId } of await provider.getFullAddressHistory()) candidateTxIds.add(txId)
   } catch { /* history is best-effort */ }
   try {
     for (const u of await provider.getUtxos()) candidateTxIds.add(u.txId)

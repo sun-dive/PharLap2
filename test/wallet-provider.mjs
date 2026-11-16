@@ -229,6 +229,47 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
   ok((await junk.p.getSpendingTx(A, 1)) === null, '★ a malformed answer is null, never a spend')
 }
 
+// ── ★★★ the full history: every page, through the queue ─────────────────────────────────────────────
+//
+// ⚠ `/history` answers only the newest 100, so a token whose marker was spent and whose transaction is
+//   older than that is found by nothing. The full history follows `nextPageToken` to the end.
+{
+  const GAP = 4321
+  const P1 = 'c1'.repeat(32), P2 = 'c2'.repeat(32), P3 = 'c3'.repeat(32), M = 'c4'.repeat(32)
+  const { p, calls, slept } = wired(url => {
+    if (url.includes('/unconfirmed/history')) return resp({ result: [{ tx_hash: M, height: 0 }, { tx_hash: P1, height: 0 }], error: '' })
+    if (url.endsWith('/confirmed/history')) return resp({ result: [{ tx_hash: P1, height: 900003 }], nextPageToken: 'tA' })
+    if (url.endsWith('?token=tA')) return resp({ result: [{ tx_hash: P2, height: 900002 }], nextPageToken: 'tB' })
+    if (url.endsWith('?token=tB')) return resp({ result: [{ tx_hash: P3, height: 900001 }] })
+    return resp(null, 500)
+  }, { gap: GAP })
+  const h = await p.getFullAddressHistory()
+  const ids = h.map(x => x.txId)
+  ok(ids.length === 4 && [P1, P2, P3, M].every(x => ids.includes(x)), `★★★ all three pages and the mempool came back (${ids.length})`)
+  ok(h.find(x => x.txId === P3)?.blockHeight === 900001, '★ …with the height read from the last page')
+  ok(h.find(x => x.txId === P1)?.blockHeight === 900003, '⚠ a transaction in both lists keeps its confirmed height')
+  ok(calls.filter(([u]) => u.includes('/confirmed/history')).length === 3, '★★ each page was asked for exactly once')
+  ok(calls.some(([u]) => u.includes(`/address/${ADDR}/confirmed/history?token=tA`)), '★ the next page is asked for with ?token=')
+  ok(slept.filter(x => x === GAP).length === calls.length, `★★★ every one of the ${calls.length} requests went through the queue`)
+}
+{
+  const { p } = wired(() => resp(null, 404))
+  ok((await p.getFullAddressHistory()).length === 0, '★ an address never seen has an empty history, not an error')
+}
+{
+  // an API answering the same token forever must not keep the walk going
+  const { p, calls } = wired(url => url.includes('/unconfirmed/') ? resp({ result: [] })
+    : resp({ result: [{ tx_hash: 'c5'.repeat(32), height: 1 }], nextPageToken: 'same' }))
+  await p.getFullAddressHistory()
+  ok(calls.filter(([u]) => u.includes('/confirmed/history')).length === 2, '⚠ a token already followed ends the walk')
+}
+{
+  const { p } = wired(url => url.endsWith('?token=tA') ? resp('', 500)
+    : url.includes('/unconfirmed/') ? resp({ result: [] })
+    : resp({ result: [{ tx_hash: 'c6'.repeat(32), height: 1 }], nextPageToken: 'tA' }))
+  ok(await rejects(p.getFullAddressHistory(), 'confirmed history fetch failed'), '⛔ a failed page throws: a short history looks complete')
+}
+
 rmSync(tmp, { recursive: true, force: true })
 console.log(`\n${fail === 0 ? '✅' : '⚠'}  ${pass} passed · ${fail} failed   [wallet layer · the deployed file, adapted]`)
 process.exit(fail === 0 ? 0 : 1)
