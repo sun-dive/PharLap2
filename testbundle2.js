@@ -10466,7 +10466,7 @@
   // src/keystore.ts
   var DB = "pharlap2-keys";
   var STORE = "keys";
-  var ID = "wallet";
+  var WALLET = "wallet";
   var UNREADABLE = "unreadable";
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -10499,9 +10499,9 @@
       db.close();
     }
   }
-  async function loadSecret() {
-    if (await idb("readonly", (s) => s.count(ID)) === 0) return null;
-    const r = await idb("readonly", (s) => s.get(ID));
+  async function loadSecret(id = WALLET) {
+    if (await idb("readonly", (s) => s.count(id)) === 0) return null;
+    const r = await idb("readonly", (s) => s.get(id));
     try {
       const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: r.iv }, r.key, r.ct);
       const s = JSON.parse(new TextDecoder().decode(plain));
@@ -10511,20 +10511,20 @@
       return UNREADABLE;
     }
   }
-  async function saveSecret(secret) {
+  async function saveSecret(secret, id = WALLET) {
     const key2 = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const plain = new TextEncoder().encode(JSON.stringify({ wif: secret.wif, words: secret.words }));
     const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key2, plain));
     plain.fill(0);
-    await idb("readwrite", (s) => s.put({ v: 1, key: key2, iv, ct, saved: Date.now() }, ID));
-    const back = await loadSecret();
+    await idb("readwrite", (s) => s.put({ v: 1, key: key2, iv, ct, saved: Date.now() }, id));
+    const back = await loadSecret(id);
     if (back == null || back === UNREADABLE || back.wif !== secret.wif || back.words !== secret.words) {
       throw new Error("the browser did not keep the sealed key");
     }
   }
   async function forgetSecret() {
-    await idb("readwrite", (s) => s.delete(ID));
+    await idb("readwrite", (s) => s.delete(WALLET));
   }
   async function keepStorage() {
     try {
@@ -10606,6 +10606,7 @@
   var words2 = null;
   var keySealed = false;
   var wordsOrNull = (w) => w != null && w.trim() !== "" ? w : null;
+  var SEALED_FLAG = "p2:wallet:sealed";
   async function keepSecret(k, w, seal = true) {
     const wif = k.toWif();
     if (seal) {
@@ -10613,6 +10614,7 @@
         await saveSecret({ wif, words: w });
         keySealed = true;
         try {
+          localStorage.setItem(SEALED_FLAG, "1");
           localStorage.removeItem(WIF_KEY);
           localStorage.removeItem(MNEMONIC_KEY);
         } catch {
@@ -10627,6 +10629,7 @@
     else localStorage.removeItem(MNEMONIC_KEY);
     if (seal) try {
       await forgetSecret();
+      localStorage.removeItem(SEALED_FLAG);
     } catch {
     }
   }
@@ -10641,6 +10644,69 @@
     } catch {
     }
   }
+  var P1_WIF = "p:wallet:wif";
+  var P1_WORDS = "p:wallet:mnemonic";
+  var P1_WATCH = "p:wallet:watch";
+  var IMPORTED_KEY = "p2:wallet:importedFrom1";
+  var P1_WALLET_ITEMS = ["tokens", "contacts", "contactsAt", "pinned", "myalias", "myaliasAt", "cfgDirty", "cfgBackupAt", "wallet:backedUp"];
+  var P1_JOINED_ITEMS = ["aliases", "avatars"];
+  var P1_FILLED_ITEMS = ["nftview", "nftsort", "activeTab", "refBy", "affRefCode"];
+  var ASIDE = "aside:";
+  function pharLap1Wallet() {
+    try {
+      const wif = localStorage.getItem(P1_WIF);
+      return wif ? { key: Signer.fromWif(wif), words: wordsOrNull(localStorage.getItem(P1_WORDS)) } : null;
+    } catch {
+      return null;
+    }
+  }
+  function copyPharLap1Items(replace) {
+    const theirs = (k) => localStorage.getItem("p:" + k);
+    const ours = (k) => localStorage.getItem("p2:" + k);
+    for (const k of P1_WALLET_ITEMS) {
+      const v = theirs(k);
+      if (v != null && (replace || ours(k) == null)) localStorage.setItem("p2:" + k, v);
+      else if (v == null && replace) localStorage.removeItem("p2:" + k);
+    }
+    for (const k of P1_JOINED_ITEMS) {
+      const v = theirs(k);
+      if (v == null) continue;
+      try {
+        localStorage.setItem("p2:" + k, JSON.stringify({ ...JSON.parse(v), ...JSON.parse(ours(k) ?? "{}") }));
+      } catch {
+      }
+    }
+    for (const k of P1_FILLED_ITEMS) {
+      const v = theirs(k);
+      if (v != null && ours(k) == null) localStorage.setItem("p2:" + k, v);
+    }
+  }
+  async function setAside(k, w, seal) {
+    if (seal) {
+      try {
+        await saveSecret({ wif: k.toWif(), words: w }, ASIDE + k.address());
+        return;
+      } catch {
+      }
+    }
+    localStorage.setItem("p2:wallet:" + ASIDE + k.address(), JSON.stringify({ wif: k.toWif(), words: w }));
+  }
+  async function importPharLap1Watch() {
+    try {
+      const pub = localStorage.getItem(P1_WATCH);
+      if (pub == null || localStorage.getItem(P1_WIF) != null || localStorage.getItem(WATCH_KEY) != null) return;
+      if (localStorage.getItem(IMPORTED_KEY) === "watch:" + pub) return;
+      if (localStorage.getItem(WIF_KEY) != null || localStorage.getItem(SEALED_FLAG) != null) return;
+      try {
+        if (await loadSecret() != null) return;
+      } catch {
+      }
+      copyPharLap1Items(false);
+      localStorage.setItem(WATCH_KEY, pub);
+      localStorage.setItem(IMPORTED_KEY, "watch:" + pub);
+    } catch {
+    }
+  }
   async function loadWallet() {
     let kept = null;
     let readable = true;
@@ -10649,41 +10715,63 @@
     } catch {
       readable = false;
     }
-    if (kept === UNREADABLE) return askForUnreadable();
+    const p1 = pharLap1Wallet();
+    if (kept === UNREADABLE) return askForUnreadable("unreadable", p1);
+    if (!readable && localStorage.getItem(SEALED_FLAG) != null) return askForUnreadable("store", p1);
+    let mine = null;
     if (kept != null) {
-      let k2;
       try {
-        k2 = Signer.fromWif(kept.wif);
+        mine = { key: Signer.fromWif(kept.wif), words: wordsOrNull(kept.words) };
       } catch {
-        return askForUnreadable();
+        return askForUnreadable("unreadable", p1);
       }
-      keySealed = true;
-      dropPlainCopies(kept);
-      return { key: k2, words: wordsOrNull(kept.words), then: null };
-    }
-    let k = null, w = null;
-    const wif = localStorage.getItem(WIF_KEY);
-    if (wif) {
-      try {
-        k = Signer.fromWif(wif);
-        w = wordsOrNull(localStorage.getItem(MNEMONIC_KEY));
-      } catch {
-        k = null;
+    } else {
+      const wif = localStorage.getItem(WIF_KEY);
+      if (wif) {
+        try {
+          mine = { key: Signer.fromWif(wif), words: wordsOrNull(localStorage.getItem(MNEMONIC_KEY)) };
+        } catch {
+          mine = null;
+        }
       }
     }
-    if (k == null) {
-      const fresh = newSeedWallet();
-      k = fresh.key;
-      w = fresh.mnemonic;
+    if (p1 != null && localStorage.getItem(IMPORTED_KEY) !== p1.key.address()) {
+      const other = mine != null && mine.key.address() !== p1.key.address();
+      if (other) {
+        try {
+          await setAside(mine.key, mine.words, readable);
+        } catch {
+          return opened(mine, kept);
+        }
+      }
+      const w = p1.words ?? (other ? null : mine?.words ?? null);
+      copyPharLap1Items(other);
+      await keepSecret(p1.key, w, readable);
+      localStorage.setItem(IMPORTED_KEY, p1.key.address());
+      return { key: p1.key, words: w, then: null };
     }
-    await keepSecret(k, w, readable);
-    return { key: k, words: w, then: null };
+    if (mine != null) return opened(mine, kept);
+    const fresh = newSeedWallet();
+    await keepSecret(fresh.key, fresh.mnemonic, readable);
+    return { key: fresh.key, words: fresh.mnemonic, then: null };
+    async function opened(m, sealed) {
+      if (sealed != null) {
+        keySealed = true;
+        try {
+          localStorage.setItem(SEALED_FLAG, "1");
+        } catch {
+        }
+        dropPlainCopies(sealed);
+      } else await keepSecret(m.key, m.words, readable);
+      return { key: m.key, words: m.words, then: null };
+    }
   }
-  function askForUnreadable() {
+  function askForUnreadable(why, p1) {
     return new Promise((resolve) => {
       const overlay = document.createElement("div");
       overlay.className = "modal";
-      overlay.innerHTML = '<div class="modal-box" style="max-width:460px"><div class="modal-head"><span>\u{1F511} Your wallet will not open</span></div><p style="font-size:13px;margin:0 0 10px">A wallet is saved in this browser, but the browser will not open it. Nothing has been changed. Bring it back with its 12 words or its WIF.</p><textarea class="unr-secret" rows="2" autocomplete="off" spellcheck="false" placeholder="your 12 words, or the WIF" style="width:100%;box-sizing:border-box"></textarea><p class="unr-err" style="font-size:13px;color:#e5484d;margin:6px 0 0" hidden></p><div class="row" style="margin-top:12px"><button class="unr-restore">Restore</button><button class="secondary unr-new">Start a new wallet instead</button></div></div>';
+      const say = why === "store" ? "Your wallet is sealed in this browser, but the browser would not open its storage just now. Nothing has been changed. Reload the page to try again." : "A wallet is saved in this browser, but the browser will not open it. Nothing has been changed. Bring it back with its 12 words or its WIF.";
+      overlay.innerHTML = `<div class="modal-box" style="max-width:460px"><div class="modal-head"><span>\u{1F511} Your wallet will not open</span></div><p style="font-size:13px;margin:0 0 10px">${say}</p><div class="row" style="margin:0 0 10px">` + (why === "store" ? '<button class="unr-reload">Reload</button>' : "") + (p1 != null ? `<button class="secondary unr-p1">Open your original wallet (${escapeHtml(short(p1.key.address(), 6))})</button>` : "") + '</div><textarea class="unr-secret" rows="2" autocomplete="off" spellcheck="false" placeholder="your 12 words, or the WIF" style="width:100%;box-sizing:border-box"></textarea><p class="unr-err" style="font-size:13px;color:#e5484d;margin:6px 0 0" hidden></p><div class="row" style="margin-top:12px"><button class="unr-restore">Restore</button><button class="secondary unr-new">Start a new wallet instead</button></div></div>';
       const field = overlay.querySelector(".unr-secret");
       const err = overlay.querySelector(".unr-err");
       const done = (r) => {
@@ -10691,6 +10779,10 @@
         overlay.remove();
         resolve(r);
       };
+      overlay.querySelector(".unr-reload")?.addEventListener("click", () => location.reload());
+      overlay.querySelector(".unr-p1")?.addEventListener("click", () => {
+        if (p1 != null) done({ key: p1.key, words: p1.words, then: "import" });
+      });
       overlay.querySelector(".unr-restore")?.addEventListener("click", () => {
         const v = field.value.trim().replace(/\s+/g, " ");
         try {
@@ -10767,6 +10859,7 @@
       }
       if (left != null) throw new Error("the key could not be removed from this browser");
     }
+    localStorage.removeItem(SEALED_FLAG);
     localStorage.setItem(WATCH_KEY, pub);
     localStorage.removeItem(WIF_KEY);
     localStorage.removeItem(MNEMONIC_KEY);
@@ -15880,18 +15973,21 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
   async function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"c31e274"} \xB7 ${"2026-11-17"}`;
-    loadAliases();
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"4c7ec6e"} \xB7 ${"2026-11-17"}`;
+    await importPharLap1Watch();
     const watch = localStorage.getItem(WATCH_KEY);
     let loaded = null;
+    if (watch == null) loaded = await loadWallet();
+    loadAliases();
     if (watch != null) {
       try {
         useWatchKey(watch);
       } catch {
         localStorage.removeItem(WATCH_KEY);
         loaded = await loadWallet();
+        loadAliases();
       }
-    } else loaded = await loadWallet();
+    }
     if (loaded != null) useKey(loaded.key, loaded.words);
     void refreshMarkerBackup();
     try {
@@ -16146,6 +16242,15 @@ Buy ANOTHER copy?`)) void onGetCopy();
       await switchWallet(loaded.key, false, loaded.words ?? void 0);
       localStorage.removeItem(BACKED_UP_KEY);
       showSeedModal(loaded.words ?? "");
+    }
+    if (loaded?.then === "import") {
+      await switchWallet(loaded.key, false, loaded.words ?? void 0);
+      copyPharLap1Items(true);
+      localStorage.setItem(IMPORTED_KEY, loaded.key.address());
+      loadAliases();
+      renderTokens();
+      renderContacts();
+      refreshNameSurfaces();
     }
   }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => void init());
