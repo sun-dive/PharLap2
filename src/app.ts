@@ -48,6 +48,7 @@ import { readCorridor, postToNodeFeed, type CorridorNode, type DiscPost } from '
 import { publishConfigBackup, resolveConfigBackup, mergeConfig } from './configBackup.ts'
 import { emptyMarkerBackup, updateMarkerBackup, parseMarkerBackup, mergeMarkerBackups, markerTxIds, markerBackupFileName, heldTransactions, type MarkerBackup, type CardData } from './markerBackup.ts'
 import { unwrapContentKey, decryptContent } from './contentCrypto.ts'
+import { loadSecret, saveSecret, forgetSecret, keepStorage, UNREADABLE, type Secret } from './keystore.ts'
 import { decompress } from './compress.ts'
 
 // Injected by build.mjs (esbuild define). Base version is manual; build id + date auto-update each build.
@@ -107,6 +108,8 @@ document.addEventListener('click', e => {
 })
 
 // ─── wallet ─────────────────────────────────────────────────────────
+/* The key is kept SEALED in IndexedDB (src/keystore.ts). WIF_KEY and MNEMONIC_KEY are its plain copies from
+   before the seal: read once to move them into it, and still written by a browser that cannot keep it sealed. */
 const MNEMONIC_KEY = 'p2:wallet:mnemonic'
 const BACKED_UP_KEY = 'p2:wallet:backedUp' // set once the user confirms they've written the seed down
 // Fixed BIP-44 path (236 = BSV coin type). MUST never change — restores derive the same key from it.
@@ -125,25 +128,120 @@ function newSeedWallet(): { mnemonic: string; key: Signer } {
   return { mnemonic, key: keyFromMnemonic(mnemonic) }
 }
 
-function loadKey(): Signer {
-  const wif = localStorage.getItem(WIF_KEY)
-  if (wif) {
-    try { return Signer.fromWif(wif) } catch { /* fall through to new */ }
+/** The open wallet's words, in memory; null for a WIF import and in watch-only. */
+let words: string | null = null
+/** True when this browser keeps the key sealed, false when it could keep only the plain copy. */
+let keySealed = false
+
+const wordsOrNull = (w: string | null | undefined): string | null => (w != null && w.trim() !== '' ? w : null)
+
+/**
+ * Keep a wallet's secret: sealed, then its plain copies deleted. When this browser cannot keep it sealed, as plain
+ * copies, as before; a sealed copy of an earlier wallet is then removed if it can be, so it cannot come back in
+ * place of this one. `seal` false keeps the plain copies only and touches nothing sealed.
+ */
+async function keepSecret(k: Signer, w: string | null, seal = true): Promise<void> {
+  const wif = k.toWif()
+  if (seal) {
+    try {
+      await saveSecret({ wif, words: w })
+      keySealed = true
+      try { localStorage.removeItem(WIF_KEY); localStorage.removeItem(MNEMONIC_KEY) } catch { /* sealed all the same */ }
+      return
+    } catch { /* not kept sealed: the plain copy below */ }
   }
-  // First run → a seed-phrase wallet (so new installs have a recoverable phrase), persisting both.
-  const { mnemonic, key } = newSeedWallet()
-  localStorage.setItem(WIF_KEY, key.toWif())
-  localStorage.setItem(MNEMONIC_KEY, mnemonic)
-  return key
+  keySealed = false
+  localStorage.setItem(WIF_KEY, wif)
+  if (w != null) localStorage.setItem(MNEMONIC_KEY, w); else localStorage.removeItem(MNEMONIC_KEY)
+  if (seal) try { await forgetSecret() } catch { /* no usable IndexedDB: nothing sealed there */ }
+}
+
+/** Delete the plain copies a sealed secret makes redundant. Copies of a DIFFERENT key are left alone: a key is never lost. */
+function dropPlainCopies(s: Secret): void {
+  try {
+    const wif = localStorage.getItem(WIF_KEY)
+    if (wif == null || wif !== s.wif) return
+    const w = wordsOrNull(localStorage.getItem(MNEMONIC_KEY))
+    if (w != null && w !== s.words) return
+    localStorage.removeItem(WIF_KEY); localStorage.removeItem(MNEMONIC_KEY)
+  } catch { /* the sealed copy is what loads */ }
+}
+
+/** What loadWallet found, and what is still to do: a restore (`recover`) or a new wallet's backup (`fresh`). */
+interface LoadedWallet { key: Signer; words: string | null; then: 'recover' | 'fresh' | null }
+
+/**
+ * The wallet on this device: its sealed secret; else the plain copy from before the seal, moved into it; else, the
+ * first time, a new seed wallet. ⛔ A sealed record the browser will not open is never replaced unasked: the person
+ * brings it back with its words or WIF, or chooses a new wallet (askForUnreadable).
+ */
+async function loadWallet(): Promise<LoadedWallet> {
+  let kept: Secret | null | typeof UNREADABLE = null
+  // ⚠ When the store cannot be read, whether a sealed key is in it cannot be told either: this load then keeps
+  //   plain copies only and never writes there, so a key sealed earlier is never written over.
+  let readable = true
+  try { kept = await loadSecret() } catch { readable = false }
+  if (kept === UNREADABLE) return askForUnreadable()
+  if (kept != null) {
+    let k: Signer
+    try { k = Signer.fromWif(kept.wif) } catch { return askForUnreadable() }
+    keySealed = true
+    dropPlainCopies(kept)
+    return { key: k, words: wordsOrNull(kept.words), then: null }
+  }
+  let k: Signer | null = null, w: string | null = null
+  const wif = localStorage.getItem(WIF_KEY)
+  if (wif) { try { k = Signer.fromWif(wif); w = wordsOrNull(localStorage.getItem(MNEMONIC_KEY)) } catch { k = null } }
+  if (k == null) { const fresh = newSeedWallet(); k = fresh.key; w = fresh.mnemonic } // first run: a recoverable phrase
+  await keepSecret(k, w, readable)
+  return { key: k, words: w, then: null }
+}
+
+/**
+ * A sealed wallet is saved in this browser and will not open (Safari does this when it cannot use the Keychain
+ * key it stored it under). Nothing is written over it until the person brings it back, with its words or WIF, or
+ * chooses a new wallet, which replaces it. Either goes through switchWallet, which keeps it.
+ */
+function askForUnreadable(): Promise<LoadedWallet> {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div'); overlay.className = 'modal'
+    overlay.innerHTML =
+      '<div class="modal-box" style="max-width:460px">' +
+      '<div class="modal-head"><span>🔑 Your wallet will not open</span></div>' +
+      '<p style="font-size:13px;margin:0 0 10px">A wallet is saved in this browser, but the browser will not open it. Nothing has been changed. Bring it back with its 12 words or its WIF.</p>' +
+      '<textarea class="unr-secret" rows="2" autocomplete="off" spellcheck="false" placeholder="your 12 words, or the WIF" style="width:100%;box-sizing:border-box"></textarea>' +
+      '<p class="unr-err" style="font-size:13px;color:#e5484d;margin:6px 0 0" hidden></p>' +
+      '<div class="row" style="margin-top:12px"><button class="unr-restore">Restore</button><button class="secondary unr-new">Start a new wallet instead</button></div>' +
+      '</div>'
+    const field = overlay.querySelector('.unr-secret') as HTMLTextAreaElement
+    const err = overlay.querySelector('.unr-err') as HTMLElement
+    const done = (r: LoadedWallet): void => { field.value = ''; overlay.remove(); resolve(r) }
+    overlay.querySelector('.unr-restore')?.addEventListener('click', () => {
+      const v = field.value.trim().replace(/\s+/g, ' ')
+      try {
+        if (bip39.isValid(v)) done({ key: keyFromMnemonic(v), words: v, then: 'recover' })
+        else done({ key: Signer.fromWif(v), words: null, then: 'recover' })
+      } catch { err.textContent = 'Those are not 12 valid words or a valid WIF.'; err.hidden = false }
+    })
+    const startNew = overlay.querySelector('.unr-new') as HTMLButtonElement
+    startNew.addEventListener('click', () => {
+      if (startNew.dataset.sure !== '1') { startNew.dataset.sure = '1'; startNew.textContent = 'Yes, replace the saved wallet'; return }
+      const fresh = newSeedWallet()
+      done({ key: fresh.key, words: fresh.mnemonic, then: 'fresh' })
+    })
+    document.body.append(overlay)
+  })
 }
 
 function markBackedUp(): void { localStorage.setItem(BACKED_UP_KEY, '1') }
 /** A fresh seed wallet the user hasn't confirmed backing up yet (WIF-only wallets have no seed → false). */
-function needsSeedBackup(): boolean { return !!localStorage.getItem(MNEMONIC_KEY) && !localStorage.getItem(BACKED_UP_KEY) }
+function needsSeedBackup(): boolean { return words != null && !localStorage.getItem(BACKED_UP_KEY) }
 
-function useKey(k: Signer): void {
+function useKey(k: Signer, w: string | null): void {
   localStorage.removeItem(WATCH_KEY) // a real key supersedes any watch-only state
   key = k
+  words = w
+  void keepStorage() // a wallet exists: ask the browser not to evict this site's storage
   pubKeyHex = toHex(k.publicKey())
   address = k.address()
   provider = new WalletProvider(address)
@@ -158,6 +256,7 @@ function useKey(k: Signer): void {
 function useWatchKey(watchPubKeyHex: string): void {
   const pub = compressedPubKeyHex(watchPubKeyHex)
   key = null
+  words = null
   pubKeyHex = pub
   address = addressFromPubHex(pub)
   provider = new WalletProvider(address)
@@ -180,11 +279,18 @@ function requireKey(): Signer | null {
 }
 
 /** Enter watch-only mode for `watchPubKeyHex`: wipe any local key, clear the (previous wallet's) holdings
- *  cache, and recover the watched wallet's holdings from chain. */
-function switchToWatch(watchPubKeyHex: string): void {
+ *  cache, and recover the watched wallet's holdings from chain. Throws, changing nothing, when the public key is
+ *  not valid or the sealed key cannot be removed. */
+async function switchToWatch(watchPubKeyHex: string): Promise<void> {
   const pub = compressedPubKeyHex(watchPubKeyHex) // throws on bad input → caller catches
+  // No private key lives on a watch-only box: the sealed key goes first, and if it will not go, nothing changes.
+  try { await forgetSecret() } catch {
+    let left: unknown = null
+    try { left = await loadSecret() } catch { /* no usable IndexedDB: nothing sealed there */ }
+    if (left != null) throw new Error('the key could not be removed from this browser')
+  }
   localStorage.setItem(WATCH_KEY, pub)
-  localStorage.removeItem(WIF_KEY)      // no private key lives on a watch-only box
+  localStorage.removeItem(WIF_KEY)
   localStorage.removeItem(MNEMONIC_KEY)
   store.clear()
   useWatchKey(pub)
@@ -198,13 +304,13 @@ function switchToWatch(watchPubKeyHex: string): void {
  * and (on a restore) rebuild this wallet's holdings: from its token backup first, its history only for what the
  * backup does not hold. A fresh random wallet has nothing to recover.
  */
-function switchWallet(k: Signer, recover: boolean, mnemonic?: string): void {
-  localStorage.setItem(WIF_KEY, k.toWif())
-  // A seed-derived wallet keeps its phrase; a raw-WIF import has none, so clear any stale phrase.
-  if (mnemonic != null && mnemonic !== '') localStorage.setItem(MNEMONIC_KEY, mnemonic)
-  else localStorage.removeItem(MNEMONIC_KEY)
+async function switchWallet(k: Signer, recover: boolean, mnemonic?: string): Promise<void> {
+  // A seed-derived wallet keeps its phrase; a raw-WIF import has none. Kept before it is used, so a reload in
+  // between opens this wallet, not the one it replaced.
+  const w = wordsOrNull(mnemonic)
+  await keepSecret(k, w)
   store.clear()
-  useKey(k)
+  useKey(k, w)
   renderTokens()
   void refreshBalance()
   if (!recover) void refreshMarkerBackup()
@@ -224,30 +330,38 @@ function renderWallet(): void {
   if (mine) mine.innerHTML = avatarHtml(pubKeyHex, 22) // your own avatar (or identicon)
   document.body.classList.toggle('watch-only', key == null) // CSS hides key-only controls
   const watchEl = document.getElementById('watchBanner'); if (watchEl != null) watchEl.hidden = key != null
-  ;($('wif') as HTMLInputElement).value = key != null ? key.toWif() : ''
+  // The WIF and the words are written into the page only while shown (Show, Reveal), and taken out on Hide.
   const seedEl = document.getElementById('seedPhrase') as HTMLTextAreaElement | null
-  if (seedEl != null) seedEl.value = key != null ? (localStorage.getItem(MNEMONIC_KEY) ?? '') : '' // watch-only → no secret
+  if (seedEl != null) seedEl.placeholder = words != null ? 'Tap Reveal to show the 12 words' : '(this wallet was imported from a WIF - it has no seed phrase; back up the WIF below)'
   hideWif() // re-mask on every wallet (re)load so a switched-in key is never left exposed
   hideSeed()
+  const sealNote = document.getElementById('keySealNote')
+  if (sealNote != null) sealNote.textContent = keySealed
+    ? '🔒 Kept sealed in this browser. The words and the WIF are shown only when you tap Reveal or Show.'
+    : '⚠️ This browser could not seal the key, so it is kept unsealed, as before.'
 }
 
-/** Mask the WIF input and reset the toggle to "Show". */
+/** Take the WIF out of the page and reset the toggle to "Show". */
 function hideWif(): void {
-  ;($('wif') as HTMLInputElement).type = 'password'
+  const el = $('wif') as HTMLInputElement
+  el.type = 'password'
+  el.value = ''
   $('btnWifShow').textContent = '👁 Show'
 }
 
-/** Seed phrase reveal is a CSS blur toggle (a textarea can't be type=password). Re-blur on every wallet load. */
+/** Take the words out of the page (the blur stays, for the moment they are shown). Re-hidden on every wallet load. */
 function hideSeed(): void {
-  const el = document.getElementById('seedPhrase'); const btn = document.getElementById('btnSeedShow')
-  if (el != null) el.classList.add('blurred')
+  const el = document.getElementById('seedPhrase') as HTMLTextAreaElement | null; const btn = document.getElementById('btnSeedShow')
+  if (el != null) { el.value = ''; el.classList.add('blurred') }
   if (btn != null) btn.textContent = '👁 Reveal'
 }
 function toggleSeed(): void {
-  const el = document.getElementById('seedPhrase'); const btn = document.getElementById('btnSeedShow') as HTMLButtonElement | null
+  const el = document.getElementById('seedPhrase') as HTMLTextAreaElement | null; const btn = document.getElementById('btnSeedShow') as HTMLButtonElement | null
   if (el == null || btn == null) return
-  const blurred = el.classList.toggle('blurred')
-  btn.textContent = blurred ? '👁 Reveal' : '🙈 Hide'
+  if (!el.classList.contains('blurred')) { hideSeed(); return }
+  el.value = key != null ? (words ?? '') : '' // watch-only → no secret
+  el.classList.remove('blurred')
+  btn.textContent = '🙈 Hide'
 }
 
 /** Force the backup moment when a new seed wallet is created: show the 12 words, numbered, with a warning. */
@@ -4314,7 +4428,7 @@ async function onGetCopy(): Promise<void> {
       // back it up BEFORE broadcasting the claim. The gated modal's only exit is its confirm button, so
       // this await resolves once the user has written the phrase down; only then does the claim proceed.
       if (needsSeedBackup()) {
-        await new Promise<void>(resolve => showSeedModal(localStorage.getItem(MNEMONIC_KEY) ?? '', {
+        await new Promise<void>(resolve => showSeedModal(words ?? '', {
           gated: true,
           intro: 'First, secure your new wallet — this seed phrase is the ONLY key to the NFT gift you’re about to claim. Write it down before we add it to your wallet.',
           onDone: () => resolve(),
@@ -4997,13 +5111,15 @@ function initTabs(): void {
   if (saved && tabs.some(t => t.dataset.tab === saved)) activateTab(saved)
 }
 
-function init(): void {
+async function init(): Promise<void> {
   store = new PharLapStore()
   const ver = $('appVersion'); if (ver != null) ver.textContent = `Smart NFTs · v${__APP_VERSION__} · ${__BUILD_ID__} · ${__BUILD_DATE__}`
   loadAliases() // before useKey(): renderWallet() draws your own avatar, which reads the loaded p:avatars cache
   const watch = localStorage.getItem(WATCH_KEY)
-  if (watch != null) { try { useWatchKey(watch) } catch { localStorage.removeItem(WATCH_KEY); useKey(loadKey()) } }
-  else useKey(loadKey())
+  let loaded: LoadedWallet | null = null
+  if (watch != null) { try { useWatchKey(watch) } catch { localStorage.removeItem(WATCH_KEY); loaded = await loadWallet() } }
+  else loaded = await loadWallet()
+  if (loaded != null) useKey(loaded.key, loaded.words)
   void refreshMarkerBackup() // each use brings the token backup up to date, from the last block it read
   try { if (localStorage.getItem('p2:nftview') === 'grid') nftView = 'grid' } catch { /* default list */ }
   try { if (localStorage.getItem('p2:nftsort') === 'publisher') nftSort = 'publisher' } catch { /* default recent */ }
@@ -5085,36 +5201,38 @@ function init(): void {
   $('btnCfgBackup').onclick = () => void onConfigBackup()
   $('btnCfgRestore').onclick = () => void onConfigRestore()
   $('btnCheckUpdates').onclick = () => void onCheckUpdates()
-  $('btnNewWallet').onclick = () => {
+  $('btnNewWallet').onclick = async () => {
     if (!confirm('Replace the current wallet with a new one? Back up the current wallet first (its seed phrase / WIF is above) — it will be replaced.')) return
     const { mnemonic, key } = newSeedWallet()
-    switchWallet(key, false, mnemonic)
+    await switchWallet(key, false, mnemonic)
     setStatus('New wallet created — back up your seed phrase!', 'ok')
     localStorage.removeItem(BACKED_UP_KEY); showSeedModal(mnemonic) // new seed → not backed up until confirmed
   }
-  $('btnRestore').onclick = () => {
+  $('btnRestore').onclick = async () => {
     let k: Signer
     try { k = Signer.fromWif(val('restoreWif')) } catch { setStatus('Invalid WIF.', 'error'); return }
-    switchWallet(k, true) // WIF import has no phrase; recover purchases from chain
+    ;($('restoreWif') as HTMLInputElement).value = '' // the key is kept; it does not stay in the page
+    await switchWallet(k, true) // WIF import has no phrase; recover purchases from chain
   }
-  $('btnRestoreSeed').onclick = () => {
+  $('btnRestoreSeed').onclick = async () => {
     let k: Signer
     const phrase = val('restoreSeed').trim().replace(/\s+/g, ' ')
     try { k = keyFromMnemonic(phrase) } catch { setStatus('Invalid seed phrase — check the words and order.', 'error'); return }
-    switchWallet(k, true, phrase) // recover purchases from chain + keep the phrase
-    markBackedUp() // they typed their own seed → it's already backed up
     ;($('restoreSeed') as HTMLInputElement).value = ''
+    await switchWallet(k, true, phrase) // recover purchases from chain + keep the phrase
+    markBackedUp() // they typed their own seed → it's already backed up
   }
-  $('btnWatchLoad').onclick = () => {
+  $('btnWatchLoad').onclick = async () => {
     const pk = val('watchPubKey')
-    try { switchToWatch(pk) } catch { setStatus('Enter a valid public key (33- or 65-byte hex) from your offline wallet.', 'error'); return }
+    try { compressedPubKeyHex(pk) } catch { setStatus('Enter a valid public key (33- or 65-byte hex) from your offline wallet.', 'error'); return }
+    try { await switchToWatch(pk) } catch (e) { setStatus(`Watch-only not loaded: ${(e as Error).message}. Nothing was changed.`, 'error'); return }
     ;($('watchPubKey') as HTMLInputElement).value = ''
     setStatus('Watch-only wallet loaded. Signing actions are disabled here — sign on your offline machine.', 'ok')
   }
-  $('btnWatchExit').onclick = () => {
+  $('btnWatchExit').onclick = async () => {
     if (!confirm('Leave watch-only mode? This creates a fresh local wallet on this device (your watched wallet is unaffected — re-load it any time with its public key).')) return
     const { mnemonic, key } = newSeedWallet()
-    switchWallet(key, false, mnemonic)
+    await switchWallet(key, false, mnemonic)
     setStatus('Exited watch-only — a fresh local wallet was created. Back up its seed phrase.', 'ok')
     localStorage.removeItem(BACKED_UP_KEY); showSeedModal(mnemonic)
   }
@@ -5138,19 +5256,21 @@ function init(): void {
   $('btnCsSign').onclick = () => void onCosignSign()
   $('btnCsBroadcast').onclick = () => void onCosignBroadcast()
   $('btnSeedShow').onclick = () => toggleSeed()
-  $('btnSeedCopy').onclick = () => void navigator.clipboard?.writeText((($('seedPhrase') as HTMLTextAreaElement).value))
+  $('btnSeedCopy').onclick = () => { if (key != null && words != null) void navigator.clipboard?.writeText(words) }
   $('btnCopyPub').onclick = () => void navigator.clipboard?.writeText(pubKeyHex)
   $('btnCopyAddr').onclick = () => void navigator.clipboard?.writeText(address)
   $('btnQrAddr').onclick = () => showQrModal('Receive address — BSV only', address)
   $('btnQrPub').onclick = () => showQrModal('Public key — scan to share', pubKeyHex)
   $('btnWifShow').onclick = () => {
     const el = $('wif') as HTMLInputElement
-    const showing = el.type === 'text'
-    el.type = showing ? 'password' : 'text'
-    $('btnWifShow').textContent = showing ? '👁 Show' : '🙈 Hide'
+    if (el.type === 'text') { hideWif(); return }
+    el.value = key != null ? key.toWif() : ''
+    el.type = 'text'
+    $('btnWifShow').textContent = '🙈 Hide'
   }
   $('btnWifCopy').onclick = () => {
-    void navigator.clipboard?.writeText(($('wif') as HTMLInputElement).value)
+    if (key == null) return
+    void navigator.clipboard?.writeText(key.toWif())
     const b = $('btnWifCopy'); const prev = b.textContent
     b.textContent = 'Copied ✓'
     setTimeout(() => { b.textContent = prev }, 1200)
@@ -5200,7 +5320,14 @@ function init(): void {
   if (route) void openCollectionView(route.c, route.h, route.g, route.src)
 
   void refreshBalance()
+
+  // A wallet brought back, or begun again, in place of one that would not open: kept now, as any switch is.
+  if (loaded?.then === 'recover') await switchWallet(loaded.key, true, loaded.words ?? undefined)
+  if (loaded?.then === 'fresh') {
+    await switchWallet(loaded.key, false, loaded.words ?? undefined)
+    localStorage.removeItem(BACKED_UP_KEY); showSeedModal(loaded.words ?? '')
+  }
 }
 
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init)
-else init()
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => void init())
+else void init()
