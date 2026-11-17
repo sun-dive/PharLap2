@@ -135,6 +135,9 @@ let keySealed = false
 
 const wordsOrNull = (w: string | null | undefined): string | null => (w != null && w.trim() !== '' ? w : null)
 
+/** Set while this browser keeps a sealed key, so a load that cannot read the store knows one is waiting there. */
+const SEALED_FLAG = 'p2:wallet:sealed'
+
 /**
  * Keep a wallet's secret: sealed, then its plain copies deleted. When this browser cannot keep it sealed, as plain
  * copies, as before; a sealed copy of an earlier wallet is then removed if it can be, so it cannot come back in
@@ -146,14 +149,14 @@ async function keepSecret(k: Signer, w: string | null, seal = true): Promise<voi
     try {
       await saveSecret({ wif, words: w })
       keySealed = true
-      try { localStorage.removeItem(WIF_KEY); localStorage.removeItem(MNEMONIC_KEY) } catch { /* sealed all the same */ }
+      try { localStorage.setItem(SEALED_FLAG, '1'); localStorage.removeItem(WIF_KEY); localStorage.removeItem(MNEMONIC_KEY) } catch { /* sealed all the same */ }
       return
     } catch { /* not kept sealed: the plain copy below */ }
   }
   keySealed = false
   localStorage.setItem(WIF_KEY, wif)
   if (w != null) localStorage.setItem(MNEMONIC_KEY, w); else localStorage.removeItem(MNEMONIC_KEY)
-  if (seal) try { await forgetSecret() } catch { /* no usable IndexedDB: nothing sealed there */ }
+  if (seal) try { await forgetSecret(); localStorage.removeItem(SEALED_FLAG) } catch { /* no usable IndexedDB: nothing sealed there */ }
 }
 
 /** Delete the plain copies a sealed secret makes redundant. Copies of a DIFFERENT key are left alone: a key is never lost. */
@@ -167,48 +170,145 @@ function dropPlainCopies(s: Secret): void {
   } catch { /* the sealed copy is what loads */ }
 }
 
-/** What loadWallet found, and what is still to do: a restore (`recover`) or a new wallet's backup (`fresh`). */
-interface LoadedWallet { key: Signer; words: string | null; then: 'recover' | 'fresh' | null }
+// ─── Phar Lap 1's wallet: imported, never written ───────────────────
+/* Phar Lap 1 kept its wallet and settings under `p:` names in this same site's storage. ⛔ Phar Lap 2 MUST import
+   that wallet, whatever page reopens it, and never writes or deletes a `p:` item: Phar Lap 1's key is the original
+   wallet's key. */
+const P1_WIF = 'p:wallet:wif', P1_WORDS = 'p:wallet:mnemonic', P1_WATCH = 'p:wallet:watch'
+/** The Phar Lap 1 wallet imported here: its address, or `watch:` and its public key. Each is imported once, so a
+ *  wallet chosen in Phar Lap 2 afterwards is never replaced by it again. */
+const IMPORTED_KEY = 'p2:wallet:importedFrom1'
+/** A wallet's own items: where the imported wallet takes another's place, they replace that wallet's. */
+const P1_WALLET_ITEMS = ['tokens', 'contacts', 'contactsAt', 'pinned', 'myalias', 'myaliasAt', 'cfgDirty', 'cfgBackupAt', 'wallet:backedUp']
+/** Caches of other people's names and pictures: joined, keeping what Phar Lap 2 already has. */
+const P1_JOINED_ITEMS = ['aliases', 'avatars']
+/** Settings: copied only where Phar Lap 2 has none. */
+const P1_FILLED_ITEMS = ['nftview', 'nftsort', 'activeTab', 'refBy', 'affRefCode']
+/** The name a wallet set aside by an import is kept under, with its address: sealed, or as a plain copy where nothing
+ *  can be sealed. Never deleted. */
+const ASIDE = 'aside:'
 
-/**
- * The wallet on this device: its sealed secret; else the plain copy from before the seal, moved into it; else, the
- * first time, a new seed wallet. ⛔ A sealed record the browser will not open is never replaced unasked: the person
- * brings it back with its words or WIF, or chooses a new wallet (askForUnreadable).
- */
-async function loadWallet(): Promise<LoadedWallet> {
-  let kept: Secret | null | typeof UNREADABLE = null
-  // ⚠ When the store cannot be read, whether a sealed key is in it cannot be told either: this load then keeps
-  //   plain copies only and never writes there, so a key sealed earlier is never written over.
-  let readable = true
-  try { kept = await loadSecret() } catch { readable = false }
-  if (kept === UNREADABLE) return askForUnreadable()
-  if (kept != null) {
-    let k: Signer
-    try { k = Signer.fromWif(kept.wif) } catch { return askForUnreadable() }
-    keySealed = true
-    dropPlainCopies(kept)
-    return { key: k, words: wordsOrNull(kept.words), then: null }
+function pharLap1Wallet(): { key: Signer; words: string | null } | null {
+  try {
+    const wif = localStorage.getItem(P1_WIF)
+    return wif ? { key: Signer.fromWif(wif), words: wordsOrNull(localStorage.getItem(P1_WORDS)) } : null
+  } catch { return null }
+}
+
+/** Copy Phar Lap 1's items to Phar Lap 2's names. `replace`: its wallet's own items take the place of the ones here. */
+function copyPharLap1Items(replace: boolean): void {
+  const theirs = (k: string): string | null => localStorage.getItem('p:' + k)
+  const ours = (k: string): string | null => localStorage.getItem('p2:' + k)
+  for (const k of P1_WALLET_ITEMS) {
+    const v = theirs(k)
+    if (v != null && (replace || ours(k) == null)) localStorage.setItem('p2:' + k, v)
+    else if (v == null && replace) localStorage.removeItem('p2:' + k)
   }
-  let k: Signer | null = null, w: string | null = null
-  const wif = localStorage.getItem(WIF_KEY)
-  if (wif) { try { k = Signer.fromWif(wif); w = wordsOrNull(localStorage.getItem(MNEMONIC_KEY)) } catch { k = null } }
-  if (k == null) { const fresh = newSeedWallet(); k = fresh.key; w = fresh.mnemonic } // first run: a recoverable phrase
-  await keepSecret(k, w, readable)
-  return { key: k, words: w, then: null }
+  for (const k of P1_JOINED_ITEMS) {
+    const v = theirs(k); if (v == null) continue
+    try { localStorage.setItem('p2:' + k, JSON.stringify({ ...JSON.parse(v), ...JSON.parse(ours(k) ?? '{}') })) } catch { /* a cache: it fills in again */ }
+  }
+  for (const k of P1_FILLED_ITEMS) { const v = theirs(k); if (v != null && ours(k) == null) localStorage.setItem('p2:' + k, v) }
+}
+
+/** Keep a wallet aside, never deleted: sealed under its own name, or as a plain copy where nothing can be sealed. */
+async function setAside(k: Signer, w: string | null, seal: boolean): Promise<void> {
+  if (seal) { try { await saveSecret({ wif: k.toWif(), words: w }, ASIDE + k.address()); return } catch { /* the plain copy below */ } }
+  localStorage.setItem('p2:wallet:' + ASIDE + k.address(), JSON.stringify({ wif: k.toWif(), words: w }))
 }
 
 /**
- * A sealed wallet is saved in this browser and will not open (Safari does this when it cannot use the Keychain
- * key it stored it under). Nothing is written over it until the person brings it back, with its words or WIF, or
- * chooses a new wallet, which replaces it. Either goes through switchWallet, which keeps it.
+ * Phar Lap 1 watch-only, and no wallet with a key here: imported as watch-only. A wallet with a key is never put
+ * aside for a watch-only one, which holds no key.
  */
-function askForUnreadable(): Promise<LoadedWallet> {
+async function importPharLap1Watch(): Promise<void> {
+  try {
+    const pub = localStorage.getItem(P1_WATCH)
+    if (pub == null || localStorage.getItem(P1_WIF) != null || localStorage.getItem(WATCH_KEY) != null) return
+    if (localStorage.getItem(IMPORTED_KEY) === 'watch:' + pub) return
+    if (localStorage.getItem(WIF_KEY) != null || localStorage.getItem(SEALED_FLAG) != null) return
+    try { if ((await loadSecret()) != null) return } catch { /* no usable store: nothing sealed there */ }
+    copyPharLap1Items(false)
+    localStorage.setItem(WATCH_KEY, pub)
+    localStorage.setItem(IMPORTED_KEY, 'watch:' + pub)
+  } catch { /* storage blocked: nothing to import into */ }
+}
+
+/** What loadWallet found, and what is still to do: a restore (`recover`), a new wallet's backup (`fresh`), or Phar
+ *  Lap 1's wallet chosen in place of one that would not open (`import`). */
+interface LoadedWallet { key: Signer; words: string | null; then: 'recover' | 'fresh' | 'import' | null }
+
+/**
+ * The wallet on this device, in this order: Phar Lap 1's, imported once (sealed, its items copied, in place of any
+ * wallet here, which is kept aside); Phar Lap 2's sealed key; its plain copy from before the seal, moved into it; and
+ * only when none of them exists, a new seed wallet. ⛔ Never a new wallet in place of one that will not open: a sealed
+ * record the browser will not open, or a store that will not open where a key was sealed, is never replaced
+ * unasked (askForUnreadable).
+ */
+async function loadWallet(): Promise<LoadedWallet> {
+  let kept: Secret | null | typeof UNREADABLE = null
+  // ⚠ When the store cannot be read, whether a sealed key is in it cannot be told either: this load then writes
+  //   nothing there, so a key sealed earlier is never written over.
+  let readable = true
+  try { kept = await loadSecret() } catch { readable = false }
+  const p1 = pharLap1Wallet()
+  if (kept === UNREADABLE) return askForUnreadable('unreadable', p1)
+  if (!readable && localStorage.getItem(SEALED_FLAG) != null) return askForUnreadable('store', p1)
+
+  let mine: { key: Signer; words: string | null } | null = null
+  if (kept != null) {
+    try { mine = { key: Signer.fromWif(kept.wif), words: wordsOrNull(kept.words) } } catch { return askForUnreadable('unreadable', p1) }
+  } else {
+    const wif = localStorage.getItem(WIF_KEY)
+    if (wif) { try { mine = { key: Signer.fromWif(wif), words: wordsOrNull(localStorage.getItem(MNEMONIC_KEY)) } } catch { mine = null } }
+  }
+
+  if (p1 != null && localStorage.getItem(IMPORTED_KEY) !== p1.key.address()) {
+    const other = mine != null && mine.key.address() !== p1.key.address()
+    if (other) {
+      try { await setAside(mine!.key, mine!.words, readable) } catch { return opened(mine!, kept) } // never lost: opened as it is
+    }
+    const w = p1.words ?? (other ? null : mine?.words ?? null)
+    copyPharLap1Items(other)
+    await keepSecret(p1.key, w, readable)
+    localStorage.setItem(IMPORTED_KEY, p1.key.address())
+    return { key: p1.key, words: w, then: null }
+  }
+  if (mine != null) return opened(mine, kept)
+  const fresh = newSeedWallet() // first run: a recoverable phrase
+  await keepSecret(fresh.key, fresh.mnemonic, readable)
+  return { key: fresh.key, words: fresh.mnemonic, then: null }
+
+  async function opened(m: { key: Signer; words: string | null }, sealed: Secret | null): Promise<LoadedWallet> {
+    if (sealed != null) {
+      keySealed = true
+      try { localStorage.setItem(SEALED_FLAG, '1') } catch { /* the flag only helps a later load */ }
+      dropPlainCopies(sealed)
+    } else await keepSecret(m.key, m.words, readable) // the plain copy from before the seal, moved into it
+    return { key: m.key, words: m.words, then: null }
+  }
+}
+
+/**
+ * The wallet will not open: a sealed record the browser will not open (Safari does this when it cannot use the
+ * Keychain key it stored it under), or (`store`) the store it is sealed in. Nothing is written over it until the
+ * person reloads, brings it back with its words or WIF, opens Phar Lap 1's wallet, or chooses a new wallet. The
+ * last three go through switchWallet, which keeps the wallet.
+ */
+function askForUnreadable(why: 'unreadable' | 'store', p1: { key: Signer; words: string | null } | null): Promise<LoadedWallet> {
   return new Promise(resolve => {
     const overlay = document.createElement('div'); overlay.className = 'modal'
+    const say = why === 'store'
+      ? 'Your wallet is sealed in this browser, but the browser would not open its storage just now. Nothing has been changed. Reload the page to try again.'
+      : 'A wallet is saved in this browser, but the browser will not open it. Nothing has been changed. Bring it back with its 12 words or its WIF.'
     overlay.innerHTML =
       '<div class="modal-box" style="max-width:460px">' +
       '<div class="modal-head"><span>🔑 Your wallet will not open</span></div>' +
-      '<p style="font-size:13px;margin:0 0 10px">A wallet is saved in this browser, but the browser will not open it. Nothing has been changed. Bring it back with its 12 words or its WIF.</p>' +
+      `<p style="font-size:13px;margin:0 0 10px">${say}</p>` +
+      '<div class="row" style="margin:0 0 10px">' +
+      (why === 'store' ? '<button class="unr-reload">Reload</button>' : '') +
+      (p1 != null ? `<button class="secondary unr-p1">Open your original wallet (${escapeHtml(short(p1.key.address(), 6))})</button>` : '') +
+      '</div>' +
       '<textarea class="unr-secret" rows="2" autocomplete="off" spellcheck="false" placeholder="your 12 words, or the WIF" style="width:100%;box-sizing:border-box"></textarea>' +
       '<p class="unr-err" style="font-size:13px;color:#e5484d;margin:6px 0 0" hidden></p>' +
       '<div class="row" style="margin-top:12px"><button class="unr-restore">Restore</button><button class="secondary unr-new">Start a new wallet instead</button></div>' +
@@ -216,6 +316,8 @@ function askForUnreadable(): Promise<LoadedWallet> {
     const field = overlay.querySelector('.unr-secret') as HTMLTextAreaElement
     const err = overlay.querySelector('.unr-err') as HTMLElement
     const done = (r: LoadedWallet): void => { field.value = ''; overlay.remove(); resolve(r) }
+    overlay.querySelector('.unr-reload')?.addEventListener('click', () => location.reload())
+    overlay.querySelector('.unr-p1')?.addEventListener('click', () => { if (p1 != null) done({ key: p1.key, words: p1.words, then: 'import' }) })
     overlay.querySelector('.unr-restore')?.addEventListener('click', () => {
       const v = field.value.trim().replace(/\s+/g, ' ')
       try {
@@ -289,6 +391,7 @@ async function switchToWatch(watchPubKeyHex: string): Promise<void> {
     try { left = await loadSecret() } catch { /* no usable IndexedDB: nothing sealed there */ }
     if (left != null) throw new Error('the key could not be removed from this browser')
   }
+  localStorage.removeItem(SEALED_FLAG)
   localStorage.setItem(WATCH_KEY, pub)
   localStorage.removeItem(WIF_KEY)
   localStorage.removeItem(MNEMONIC_KEY)
@@ -5114,11 +5217,13 @@ function initTabs(): void {
 async function init(): Promise<void> {
   store = new PharLapStore()
   const ver = $('appVersion'); if (ver != null) ver.textContent = `Smart NFTs · v${__APP_VERSION__} · ${__BUILD_ID__} · ${__BUILD_DATE__}`
-  loadAliases() // before useKey(): renderWallet() draws your own avatar, which reads the loaded p:avatars cache
+  // The wallet loads first: an import from Phar Lap 1 copies its names and contacts, which are read after it.
+  await importPharLap1Watch()
   const watch = localStorage.getItem(WATCH_KEY)
   let loaded: LoadedWallet | null = null
-  if (watch != null) { try { useWatchKey(watch) } catch { localStorage.removeItem(WATCH_KEY); loaded = await loadWallet() } }
-  else loaded = await loadWallet()
+  if (watch == null) loaded = await loadWallet()
+  loadAliases() // before useKey(): renderWallet() draws your own avatar, which reads the loaded p2:avatars cache
+  if (watch != null) { try { useWatchKey(watch) } catch { localStorage.removeItem(WATCH_KEY); loaded = await loadWallet(); loadAliases() } }
   if (loaded != null) useKey(loaded.key, loaded.words)
   void refreshMarkerBackup() // each use brings the token backup up to date, from the last block it read
   try { if (localStorage.getItem('p2:nftview') === 'grid') nftView = 'grid' } catch { /* default list */ }
@@ -5326,6 +5431,12 @@ async function init(): Promise<void> {
   if (loaded?.then === 'fresh') {
     await switchWallet(loaded.key, false, loaded.words ?? undefined)
     localStorage.removeItem(BACKED_UP_KEY); showSeedModal(loaded.words ?? '')
+  }
+  if (loaded?.then === 'import') {
+    await switchWallet(loaded.key, false, loaded.words ?? undefined)
+    copyPharLap1Items(true)
+    localStorage.setItem(IMPORTED_KEY, loaded.key.address())
+    loadAliases(); renderTokens(); renderContacts(); refreshNameSurfaces()
   }
 }
 

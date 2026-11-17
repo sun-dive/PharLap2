@@ -12,7 +12,8 @@
 
 const DB = 'pharlap2-keys'
 const STORE = 'keys'
-const ID = 'wallet'
+/** The open wallet's record. Others are named by the caller (a wallet set aside, kept and never deleted). */
+export const WALLET = 'wallet'
 
 export interface Secret {
   wif: string
@@ -56,9 +57,9 @@ async function idb<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRe
  * record back as null, with no error, when it cannot use the Keychain key it stored it under. Throws when this
  * browser has no usable IndexedDB.
  */
-export async function loadSecret(): Promise<Secret | null | typeof UNREADABLE> {
-  if ((await idb('readonly', s => s.count(ID))) === 0) return null
-  const r = await idb<any>('readonly', s => s.get(ID))
+export async function loadSecret(id = WALLET): Promise<Secret | null | typeof UNREADABLE> {
+  if ((await idb('readonly', s => s.count(id))) === 0) return null
+  const r = await idb<any>('readonly', s => s.get(id))
   try {
     const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: r.iv }, r.key, r.ct)
     const s = JSON.parse(new TextDecoder().decode(plain))
@@ -71,22 +72,22 @@ export async function loadSecret(): Promise<Secret | null | typeof UNREADABLE> {
  * Seal and save, replacing what was there. Done only once it reads back and opens to the same secret; otherwise
  * throws, and the caller keeps its own copy.
  */
-export async function saveSecret(secret: Secret): Promise<void> {
+export async function saveSecret(secret: Secret, id = WALLET): Promise<void> {
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
   const iv = crypto.getRandomValues(new Uint8Array(12))
   const plain = new TextEncoder().encode(JSON.stringify({ wif: secret.wif, words: secret.words }))
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain))
   plain.fill(0)
-  await idb('readwrite', s => s.put({ v: 1, key, iv, ct, saved: Date.now() }, ID))
-  const back = await loadSecret()
+  await idb('readwrite', s => s.put({ v: 1, key, iv, ct, saved: Date.now() }, id))
+  const back = await loadSecret(id)
   if (back == null || back === UNREADABLE || back.wif !== secret.wif || back.words !== secret.words) {
     throw new Error('the browser did not keep the sealed key')
   }
 }
 
-/** Remove the sealed secret. Done once the delete commits. */
+/** Remove the open wallet's sealed secret. Done once the delete commits. */
 export async function forgetSecret(): Promise<void> {
-  await idb('readwrite', s => s.delete(ID))
+  await idb('readwrite', s => s.delete(WALLET))
 }
 
 /**
