@@ -1,19 +1,22 @@
 ---
-# cPanel Git™ Version Control deployment for Phar Lap 2 — TEST deployment.
+# cPanel Git™ Version Control deployment for Phar Lap 2, at the ROOT of smartnfts.com.
 #
-# In cPanel → Git Version Control, clone this repository (branch: main) and click "Deploy HEAD Commit".
+# In cPanel → Git Version Control, open this repository (branch: main) and click "Deploy HEAD Commit".
 # cPanel runs the tasks below.
 #
-# ⚠ The target is a SUBDIRECTORY of the smartnfts.com document root, never the root itself. The live
-#   Phar Lap deploys to "$HOME/smartnfts.com/" and this must not touch it. Everything the app loads is a
-#   relative path, its server endpoints and share links are built under the directory it is served from,
-#   and its browser storage keys carry their own prefix, so a copy here shares nothing with the live app.
+# DEPLOYPATH is the smartnfts.com document root, as cPanel → Domains states it ("/smartnfts.com", relative to
+# home). The first task stops the deploy if it is not there, so nothing lands anywhere else.
+#
+# Phar Lap 2 takes the place of Phar Lap 1 here. It imports Phar Lap 1's wallet from this site's storage and never
+# writes or deletes Phar Lap 1's items, so deploying Phar Lap 1's HEAD again restores it as it was. Phar Lap 1's own
+# files (bundle.js) are left in place. The data folders (og/, links/) are kept: existing short links and previews
+# keep working.
 #
 # testbundle2.js is committed for this copy step. It is the build output of src/, refreshed on each publish.
 deployment:
   tasks:
-    - export DEPLOYPATH="$HOME/smartnfts.com/pharlap2test/"
-    - /bin/mkdir -p "$DEPLOYPATH"
+    - export DEPLOYPATH="$HOME/smartnfts.com/"
+    - test -d "$DEPLOYPATH" || exit 1
     - /bin/cp index.html "$DEPLOYPATH"
     - /bin/cp testbundle2.js "$DEPLOYPATH"
     - /bin/cp jsqr.min.js "$DEPLOYPATH"
@@ -22,5 +25,7 @@ deployment:
     - /bin/cp register.php "$DEPLOYPATH"
     - /bin/cp shorten.php "$DEPLOYPATH"
     - /bin/cp .htaccess "$DEPLOYPATH"
+    - /bin/cp LICENSE "$DEPLOYPATH"
+    - /bin/cp NOTICE "$DEPLOYPATH"
     - /bin/mkdir -p "$DEPLOYPATH/og"
     - /bin/mkdir -p "$DEPLOYPATH/links"
