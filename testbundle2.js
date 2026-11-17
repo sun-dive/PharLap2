@@ -10463,6 +10463,79 @@
     return b.markers.filter((m) => m.rawHex != null).map((m) => ({ txId: m.txId, rawHex: m.rawHex }));
   }
 
+  // src/keystore.ts
+  var DB = "pharlap2-keys";
+  var STORE = "keys";
+  var ID = "wallet";
+  var UNREADABLE = "unreadable";
+  function openDb() {
+    return new Promise((resolve, reject) => {
+      const r = indexedDB.open(DB, 1);
+      r.onupgradeneeded = () => {
+        if (!r.result.objectStoreNames.contains(STORE)) r.result.createObjectStore(STORE);
+      };
+      r.onsuccess = () => resolve(r.result);
+      r.onerror = () => reject(r.error ?? new Error("IndexedDB would not open"));
+      r.onblocked = () => reject(new Error("IndexedDB is blocked"));
+    });
+  }
+  async function idb(mode, fn) {
+    const db = await openDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, mode);
+        const req = fn(tx.objectStore(STORE));
+        const failed = () => reject(tx.error ?? req.error ?? new Error("the browser did not keep it"));
+        if (mode === "readwrite") {
+          tx.oncomplete = () => resolve(req.result);
+          tx.onabort = failed;
+          tx.onerror = failed;
+        } else {
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = failed;
+        }
+      });
+    } finally {
+      db.close();
+    }
+  }
+  async function loadSecret() {
+    if (await idb("readonly", (s) => s.count(ID)) === 0) return null;
+    const r = await idb("readonly", (s) => s.get(ID));
+    try {
+      const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: r.iv }, r.key, r.ct);
+      const s = JSON.parse(new TextDecoder().decode(plain));
+      if (typeof s.wif !== "string" || s.wif === "" || s.words !== null && typeof s.words !== "string") return UNREADABLE;
+      return { wif: s.wif, words: s.words };
+    } catch {
+      return UNREADABLE;
+    }
+  }
+  async function saveSecret(secret) {
+    const key2 = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const plain = new TextEncoder().encode(JSON.stringify({ wif: secret.wif, words: secret.words }));
+    const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key2, plain));
+    plain.fill(0);
+    await idb("readwrite", (s) => s.put({ v: 1, key: key2, iv, ct, saved: Date.now() }, ID));
+    const back = await loadSecret();
+    if (back == null || back === UNREADABLE || back.wif !== secret.wif || back.words !== secret.words) {
+      throw new Error("the browser did not keep the sealed key");
+    }
+  }
+  async function forgetSecret() {
+    await idb("readwrite", (s) => s.delete(ID));
+  }
+  async function keepStorage() {
+    try {
+      if (navigator.storage?.persist == null) return null;
+      if (await navigator.storage.persisted()) return true;
+      return await navigator.storage.persist();
+    } catch {
+      return null;
+    }
+  }
+
   // src/app.ts
   var APP_BASE = location.pathname.replace(/[^/]*$/, "");
   var WIF_KEY = "p2:wallet:wif";
@@ -10530,28 +10603,128 @@
     const mnemonic = fromEntropy(crypto.getRandomValues(new Uint8Array(16)));
     return { mnemonic, key: keyFromMnemonic(mnemonic) };
   }
-  function loadKey() {
-    const wif = localStorage.getItem(WIF_KEY);
-    if (wif) {
+  var words2 = null;
+  var keySealed = false;
+  var wordsOrNull = (w) => w != null && w.trim() !== "" ? w : null;
+  async function keepSecret(k, w, seal = true) {
+    const wif = k.toWif();
+    if (seal) {
       try {
-        return Signer.fromWif(wif);
+        await saveSecret({ wif, words: w });
+        keySealed = true;
+        try {
+          localStorage.removeItem(WIF_KEY);
+          localStorage.removeItem(MNEMONIC_KEY);
+        } catch {
+        }
+        return;
       } catch {
       }
     }
-    const { mnemonic, key: key2 } = newSeedWallet();
-    localStorage.setItem(WIF_KEY, key2.toWif());
-    localStorage.setItem(MNEMONIC_KEY, mnemonic);
-    return key2;
+    keySealed = false;
+    localStorage.setItem(WIF_KEY, wif);
+    if (w != null) localStorage.setItem(MNEMONIC_KEY, w);
+    else localStorage.removeItem(MNEMONIC_KEY);
+    if (seal) try {
+      await forgetSecret();
+    } catch {
+    }
+  }
+  function dropPlainCopies(s) {
+    try {
+      const wif = localStorage.getItem(WIF_KEY);
+      if (wif == null || wif !== s.wif) return;
+      const w = wordsOrNull(localStorage.getItem(MNEMONIC_KEY));
+      if (w != null && w !== s.words) return;
+      localStorage.removeItem(WIF_KEY);
+      localStorage.removeItem(MNEMONIC_KEY);
+    } catch {
+    }
+  }
+  async function loadWallet() {
+    let kept = null;
+    let readable = true;
+    try {
+      kept = await loadSecret();
+    } catch {
+      readable = false;
+    }
+    if (kept === UNREADABLE) return askForUnreadable();
+    if (kept != null) {
+      let k2;
+      try {
+        k2 = Signer.fromWif(kept.wif);
+      } catch {
+        return askForUnreadable();
+      }
+      keySealed = true;
+      dropPlainCopies(kept);
+      return { key: k2, words: wordsOrNull(kept.words), then: null };
+    }
+    let k = null, w = null;
+    const wif = localStorage.getItem(WIF_KEY);
+    if (wif) {
+      try {
+        k = Signer.fromWif(wif);
+        w = wordsOrNull(localStorage.getItem(MNEMONIC_KEY));
+      } catch {
+        k = null;
+      }
+    }
+    if (k == null) {
+      const fresh = newSeedWallet();
+      k = fresh.key;
+      w = fresh.mnemonic;
+    }
+    await keepSecret(k, w, readable);
+    return { key: k, words: w, then: null };
+  }
+  function askForUnreadable() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "modal";
+      overlay.innerHTML = '<div class="modal-box" style="max-width:460px"><div class="modal-head"><span>\u{1F511} Your wallet will not open</span></div><p style="font-size:13px;margin:0 0 10px">A wallet is saved in this browser, but the browser will not open it. Nothing has been changed. Bring it back with its 12 words or its WIF.</p><textarea class="unr-secret" rows="2" autocomplete="off" spellcheck="false" placeholder="your 12 words, or the WIF" style="width:100%;box-sizing:border-box"></textarea><p class="unr-err" style="font-size:13px;color:#e5484d;margin:6px 0 0" hidden></p><div class="row" style="margin-top:12px"><button class="unr-restore">Restore</button><button class="secondary unr-new">Start a new wallet instead</button></div></div>';
+      const field = overlay.querySelector(".unr-secret");
+      const err = overlay.querySelector(".unr-err");
+      const done = (r) => {
+        field.value = "";
+        overlay.remove();
+        resolve(r);
+      };
+      overlay.querySelector(".unr-restore")?.addEventListener("click", () => {
+        const v = field.value.trim().replace(/\s+/g, " ");
+        try {
+          if (isValid(v)) done({ key: keyFromMnemonic(v), words: v, then: "recover" });
+          else done({ key: Signer.fromWif(v), words: null, then: "recover" });
+        } catch {
+          err.textContent = "Those are not 12 valid words or a valid WIF.";
+          err.hidden = false;
+        }
+      });
+      const startNew = overlay.querySelector(".unr-new");
+      startNew.addEventListener("click", () => {
+        if (startNew.dataset.sure !== "1") {
+          startNew.dataset.sure = "1";
+          startNew.textContent = "Yes, replace the saved wallet";
+          return;
+        }
+        const fresh = newSeedWallet();
+        done({ key: fresh.key, words: fresh.mnemonic, then: "fresh" });
+      });
+      document.body.append(overlay);
+    });
   }
   function markBackedUp() {
     localStorage.setItem(BACKED_UP_KEY, "1");
   }
   function needsSeedBackup() {
-    return !!localStorage.getItem(MNEMONIC_KEY) && !localStorage.getItem(BACKED_UP_KEY);
+    return words2 != null && !localStorage.getItem(BACKED_UP_KEY);
   }
-  function useKey(k) {
+  function useKey(k, w) {
     localStorage.removeItem(WATCH_KEY);
     key = k;
+    words2 = w;
+    void keepStorage();
     pubKeyHex = toHex(k.publicKey());
     address = k.address();
     provider = new WalletProvider(address);
@@ -10563,6 +10736,7 @@
   function useWatchKey(watchPubKeyHex) {
     const pub = compressedPubKeyHex(watchPubKeyHex);
     key = null;
+    words2 = null;
     pubKeyHex = pub;
     address = addressFromPubHex(pub);
     provider = new WalletProvider(address);
@@ -10581,8 +10755,18 @@
     }
     return key;
   }
-  function switchToWatch(watchPubKeyHex) {
+  async function switchToWatch(watchPubKeyHex) {
     const pub = compressedPubKeyHex(watchPubKeyHex);
+    try {
+      await forgetSecret();
+    } catch {
+      let left = null;
+      try {
+        left = await loadSecret();
+      } catch {
+      }
+      if (left != null) throw new Error("the key could not be removed from this browser");
+    }
     localStorage.setItem(WATCH_KEY, pub);
     localStorage.removeItem(WIF_KEY);
     localStorage.removeItem(MNEMONIC_KEY);
@@ -10592,12 +10776,11 @@
     void refreshBalance();
     restoreTokens();
   }
-  function switchWallet(k, recover, mnemonic) {
-    localStorage.setItem(WIF_KEY, k.toWif());
-    if (mnemonic != null && mnemonic !== "") localStorage.setItem(MNEMONIC_KEY, mnemonic);
-    else localStorage.removeItem(MNEMONIC_KEY);
+  async function switchWallet(k, recover, mnemonic) {
+    const w = wordsOrNull(mnemonic);
+    await keepSecret(k, w);
     store2.clear();
-    useKey(k);
+    useKey(k, w);
     renderTokens();
     void refreshBalance();
     if (!recover) void refreshMarkerBackup();
@@ -10622,38 +10805,48 @@
     document.body.classList.toggle("watch-only", key == null);
     const watchEl = document.getElementById("watchBanner");
     if (watchEl != null) watchEl.hidden = key != null;
-    $("wif").value = key != null ? key.toWif() : "";
     const seedEl = document.getElementById("seedPhrase");
-    if (seedEl != null) seedEl.value = key != null ? localStorage.getItem(MNEMONIC_KEY) ?? "" : "";
+    if (seedEl != null) seedEl.placeholder = words2 != null ? "Tap Reveal to show the 12 words" : "(this wallet was imported from a WIF - it has no seed phrase; back up the WIF below)";
     hideWif();
     hideSeed();
+    const sealNote = document.getElementById("keySealNote");
+    if (sealNote != null) sealNote.textContent = keySealed ? "\u{1F512} Kept sealed in this browser. The words and the WIF are shown only when you tap Reveal or Show." : "\u26A0\uFE0F This browser could not seal the key, so it is kept unsealed, as before.";
   }
   function hideWif() {
-    ;
-    $("wif").type = "password";
+    const el = $("wif");
+    el.type = "password";
+    el.value = "";
     $("btnWifShow").textContent = "\u{1F441} Show";
   }
   function hideSeed() {
     const el = document.getElementById("seedPhrase");
     const btn = document.getElementById("btnSeedShow");
-    if (el != null) el.classList.add("blurred");
+    if (el != null) {
+      el.value = "";
+      el.classList.add("blurred");
+    }
     if (btn != null) btn.textContent = "\u{1F441} Reveal";
   }
   function toggleSeed() {
     const el = document.getElementById("seedPhrase");
     const btn = document.getElementById("btnSeedShow");
     if (el == null || btn == null) return;
-    const blurred = el.classList.toggle("blurred");
-    btn.textContent = blurred ? "\u{1F441} Reveal" : "\u{1F648} Hide";
+    if (!el.classList.contains("blurred")) {
+      hideSeed();
+      return;
+    }
+    el.value = key != null ? words2 ?? "" : "";
+    el.classList.remove("blurred");
+    btn.textContent = "\u{1F648} Hide";
   }
   function showSeedModal(mnemonic, opts = {}) {
-    const words2 = mnemonic.split(" ");
+    const words3 = mnemonic.split(" ");
     const overlay = document.createElement("div");
     overlay.className = "modal";
     const closeBtn = opts.gated ? "" : '<button class="secondary seed-close">\u2715 Close</button>';
     const intro = opts.intro ? `<p style="font-size:13px;margin:0 0 8px;color:#eab300;font-weight:600">${escapeHtml(opts.intro)}</p>` : "";
     const doneLabel = opts.gated ? "\u2705 I\u2019ve written down my seed phrase \u2014 claim my NFT gift" : "I\u2019ve written it down";
-    overlay.innerHTML = `<div class="modal-box" style="max-width:460px"><div class="modal-head"><span>\u{1F511} Your new seed phrase</span>${closeBtn}</div>` + intro + `<p class="muted" style="font-size:13px;margin:0 0 10px">Write these 12 words down, in order, and keep them secret &amp; safe. <b>Anyone with them controls this wallet</b>, and if you lose them with no backup it <b>cannot be recovered</b>.</p><div class="seed-grid">${words2.map((w, i) => `<div class="seed-word"><span class="seed-num">${i + 1}</span> ${escapeHtml(w)}</div>`).join("")}</div><div class="row" style="margin-top:12px"><button class="seed-copy">Copy phrase</button><button class="secondary seed-done">${doneLabel}</button></div></div>`;
+    overlay.innerHTML = `<div class="modal-box" style="max-width:460px"><div class="modal-head"><span>\u{1F511} Your new seed phrase</span>${closeBtn}</div>` + intro + `<p class="muted" style="font-size:13px;margin:0 0 10px">Write these 12 words down, in order, and keep them secret &amp; safe. <b>Anyone with them controls this wallet</b>, and if you lose them with no backup it <b>cannot be recovered</b>.</p><div class="seed-grid">${words3.map((w, i) => `<div class="seed-word"><span class="seed-num">${i + 1}</span> ${escapeHtml(w)}</div>`).join("")}</div><div class="row" style="margin-top:12px"><button class="seed-copy">Copy phrase</button><button class="secondary seed-done">${doneLabel}</button></div></div>`;
     const close = () => overlay.remove();
     overlay.querySelector(".seed-close")?.addEventListener("click", close);
     overlay.querySelector(".seed-done")?.addEventListener("click", () => {
@@ -14931,7 +15124,7 @@ That's ${recipients.length} separate encrypted transactions \u2014 one network f
           return;
         }
         if (needsSeedBackup()) {
-          await new Promise((resolve) => showSeedModal(localStorage.getItem(MNEMONIC_KEY) ?? "", {
+          await new Promise((resolve) => showSeedModal(words2 ?? "", {
             gated: true,
             intro: "First, secure your new wallet \u2014 this seed phrase is the ONLY key to the NFT gift you\u2019re about to claim. Write it down before we add it to your wallet.",
             onDone: () => resolve()
@@ -15684,20 +15877,22 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
     }
     if (saved && tabs.some((t) => t.dataset.tab === saved)) activateTab(saved);
   }
-  function init() {
+  async function init() {
     store2 = new PharLapStore();
     const ver = $("appVersion");
-    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"cf01a40"} \xB7 ${"2026-11-16"}`;
+    if (ver != null) ver.textContent = `Smart NFTs \xB7 v${"0.1"} \xB7 ${"c31e274"} \xB7 ${"2026-11-17"}`;
     loadAliases();
     const watch = localStorage.getItem(WATCH_KEY);
+    let loaded = null;
     if (watch != null) {
       try {
         useWatchKey(watch);
       } catch {
         localStorage.removeItem(WATCH_KEY);
-        useKey(loadKey());
+        loaded = await loadWallet();
       }
-    } else useKey(loadKey());
+    } else loaded = await loadWallet();
+    if (loaded != null) useKey(loaded.key, loaded.words);
     void refreshMarkerBackup();
     try {
       if (localStorage.getItem("p2:nftview") === "grid") nftView = "grid";
@@ -15796,15 +15991,15 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
     $("btnCfgBackup").onclick = () => void onConfigBackup();
     $("btnCfgRestore").onclick = () => void onConfigRestore();
     $("btnCheckUpdates").onclick = () => void onCheckUpdates();
-    $("btnNewWallet").onclick = () => {
+    $("btnNewWallet").onclick = async () => {
       if (!confirm("Replace the current wallet with a new one? Back up the current wallet first (its seed phrase / WIF is above) \u2014 it will be replaced.")) return;
       const { mnemonic, key: key2 } = newSeedWallet();
-      switchWallet(key2, false, mnemonic);
+      await switchWallet(key2, false, mnemonic);
       setStatus("New wallet created \u2014 back up your seed phrase!", "ok");
       localStorage.removeItem(BACKED_UP_KEY);
       showSeedModal(mnemonic);
     };
-    $("btnRestore").onclick = () => {
+    $("btnRestore").onclick = async () => {
       let k;
       try {
         k = Signer.fromWif(val("restoreWif"));
@@ -15812,9 +16007,11 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
         setStatus("Invalid WIF.", "error");
         return;
       }
-      switchWallet(k, true);
+      ;
+      $("restoreWif").value = "";
+      await switchWallet(k, true);
     };
-    $("btnRestoreSeed").onclick = () => {
+    $("btnRestoreSeed").onclick = async () => {
       let k;
       const phrase = val("restoreSeed").trim().replace(/\s+/g, " ");
       try {
@@ -15823,26 +16020,33 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
         setStatus("Invalid seed phrase \u2014 check the words and order.", "error");
         return;
       }
-      switchWallet(k, true, phrase);
-      markBackedUp();
+      ;
       $("restoreSeed").value = "";
+      await switchWallet(k, true, phrase);
+      markBackedUp();
     };
-    $("btnWatchLoad").onclick = () => {
+    $("btnWatchLoad").onclick = async () => {
       const pk = val("watchPubKey");
       try {
-        switchToWatch(pk);
+        compressedPubKeyHex(pk);
       } catch {
         setStatus("Enter a valid public key (33- or 65-byte hex) from your offline wallet.", "error");
+        return;
+      }
+      try {
+        await switchToWatch(pk);
+      } catch (e) {
+        setStatus(`Watch-only not loaded: ${e.message}. Nothing was changed.`, "error");
         return;
       }
       ;
       $("watchPubKey").value = "";
       setStatus("Watch-only wallet loaded. Signing actions are disabled here \u2014 sign on your offline machine.", "ok");
     };
-    $("btnWatchExit").onclick = () => {
+    $("btnWatchExit").onclick = async () => {
       if (!confirm("Leave watch-only mode? This creates a fresh local wallet on this device (your watched wallet is unaffected \u2014 re-load it any time with its public key).")) return;
       const { mnemonic, key: key2 } = newSeedWallet();
-      switchWallet(key2, false, mnemonic);
+      await switchWallet(key2, false, mnemonic);
       setStatus("Exited watch-only \u2014 a fresh local wallet was created. Back up its seed phrase.", "ok");
       localStorage.removeItem(BACKED_UP_KEY);
       showSeedModal(mnemonic);
@@ -15867,19 +16071,26 @@ This INVALIDATES those links and returns their pre-funded sats to your wallet (m
     $("btnCsSign").onclick = () => void onCosignSign();
     $("btnCsBroadcast").onclick = () => void onCosignBroadcast();
     $("btnSeedShow").onclick = () => toggleSeed();
-    $("btnSeedCopy").onclick = () => void navigator.clipboard?.writeText($("seedPhrase").value);
+    $("btnSeedCopy").onclick = () => {
+      if (key != null && words2 != null) void navigator.clipboard?.writeText(words2);
+    };
     $("btnCopyPub").onclick = () => void navigator.clipboard?.writeText(pubKeyHex);
     $("btnCopyAddr").onclick = () => void navigator.clipboard?.writeText(address);
     $("btnQrAddr").onclick = () => showQrModal("Receive address \u2014 BSV only", address);
     $("btnQrPub").onclick = () => showQrModal("Public key \u2014 scan to share", pubKeyHex);
     $("btnWifShow").onclick = () => {
       const el = $("wif");
-      const showing = el.type === "text";
-      el.type = showing ? "password" : "text";
-      $("btnWifShow").textContent = showing ? "\u{1F441} Show" : "\u{1F648} Hide";
+      if (el.type === "text") {
+        hideWif();
+        return;
+      }
+      el.value = key != null ? key.toWif() : "";
+      el.type = "text";
+      $("btnWifShow").textContent = "\u{1F648} Hide";
     };
     $("btnWifCopy").onclick = () => {
-      void navigator.clipboard?.writeText($("wif").value);
+      if (key == null) return;
+      void navigator.clipboard?.writeText(key.toWif());
       const b = $("btnWifCopy");
       const prev = b.textContent;
       b.textContent = "Copied \u2713";
@@ -15930,8 +16141,14 @@ Buy ANOTHER copy?`)) void onGetCopy();
     const route = parseHashRoute();
     if (route) void openCollectionView(route.c, route.h, route.g, route.src);
     void refreshBalance();
+    if (loaded?.then === "recover") await switchWallet(loaded.key, true, loaded.words ?? void 0);
+    if (loaded?.then === "fresh") {
+      await switchWallet(loaded.key, false, loaded.words ?? void 0);
+      localStorage.removeItem(BACKED_UP_KEY);
+      showSeedModal(loaded.words ?? "");
+    }
   }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
-  else init();
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => void init());
+  else void init();
 })();
 //# sourceMappingURL=testbundle2.js.map
