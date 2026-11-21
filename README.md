@@ -73,7 +73,7 @@ evidence."*
 | `base58` | ✅ 3 — ⚠ written because the BIP-32 set **cannot reach** the leading-zero branch |
 | `bip39/44` | ⏭ next |
 | `bsv` | ⏭ sighash, fee, address encoding, against real mined transactions |
-| `ours` | ⏭ MPT · BMF · BRC-226 — the layer that justifies the exercise |
+| `ours` | ⏭ MPT · BMF (BRC-224) · BRC-226 royalty covenant · BRC-227 gift links — the layer that justifies the exercise |
 
 ## ⚠ Every claim here was checked by breaking something
 
