@@ -10,7 +10,7 @@ This is the WALLET layer -- responsible for all network operations:
   - Fetching Merkle proofs (for proof chain construction)
   - Address history (for incoming token detection)
 
-The token protocol (tokenProtocol.ts) has NO dependency on this module.
+The token protocol (tokenProtocol.js) has NO dependency on this module.
 Verification can be done offline with pre-fetched headers.
 
 ## Imports

@@ -10,7 +10,7 @@ publisher needs no holder list, and free transfers don't break delivery (holders
 Public-only by design: a single broadcast can't be ECIES-encrypted to all holders at once. Private
 1:1 messages remain the (encrypted) job of messageCodec + the Messages tab.
 
-Mirrors sellerNote.ts (publish a collection-keyed record to your address; others resolve by scanning
+Mirrors sellerNote.js (publish a collection-keyed record to your address; others resolve by scanning
 it) — but uses RECORD_MESSAGE from the publisher and returns the full history, newest-first.
 
 ## MAX_BROADCAST_BYTES

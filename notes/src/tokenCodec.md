@@ -3,7 +3,7 @@
 PHAR LAP token field codec.
 
 Defines what goes inside the PushDrop data fields for each PHAR LAP record type, and
-ties the field layouts to the raw-key PushDrop template in `pushDrop.ts`.
+ties the field layouts to the raw-key PushDrop template in `pushDrop.js`.
 
 Three record types, distinguished by `recordType` (data field [2]):
 
@@ -49,7 +49,7 @@ Reserved for publisher↔holder messages / announcements (encrypted or public). 
 export const RECORD_STOREFRONT = 0x06
 ```
 
-0x05 = RECORD_EDITION (covenant edition token; defined in covenant.ts).
+0x05 = RECORD_EDITION (covenant edition token; defined in covenant.js).
 
 Immutable storefront metadata (description + optional public cover image) — a TX1 output, locked to
  the publisher. The "what you're buying" face of a collection, public even when the content is encrypted.
@@ -74,7 +74,7 @@ export const RECORD_PROFILE = 0x08
 
 A key's self-published PROFILE (display alias + small avatar image), locked to its own pubkey and posted
  on its own address. Resolved by pubkey (latest-by-height wins) so any reader sees a key's @name + face
- without a prior message. Self-gated: only that key funds txs on its address. See profile.ts.
+ without a prior message. Self-gated: only that key funds txs on its address. See profile.js.
 
 ## RECORD_CONFIG
 
@@ -84,7 +84,7 @@ export const RECORD_CONFIG = 0x09
 
 A key's ENCRYPTED self-backup of its local config (alias + address book + prefs), posted on its own
  address and ECIES-encrypted to itself — only that key can read it. Resolved by scanning your own address
- (latest-by-height wins) on WIF restore. See configBackup.ts.
+ (latest-by-height wins) on WIF restore. See configBackup.js.
 
 ## RECORD_PREVIEW
 
@@ -96,7 +96,7 @@ A publisher's PUBLIC audio preview clip for a collection — a "listen before yo
  publisher's pubkey, keyed to a collection, posted on the publisher's own address and resolved by scan
  (latest-by-publisher wins), exactly like a NOTE — but it carries a binary audio payload (mp3), not text, so
  it lives in its own record instead of bloating the 3 KB note. Plaintext/public: any prospective buyer (and
- the nft.sale curator, which holds no key) plays it with no decryption. See preview.ts.
+ the nft.sale curator, which holds no key) plays it with no decryption. See preview.js.
 
 ## RECORD_MOCKUP
 
@@ -104,7 +104,7 @@ A publisher's PUBLIC audio preview clip for a collection — a "listen before yo
 export const RECORD_MOCKUP = 0x0B
 ```
 
-TX1 output carrying a packed mockup-cover manifest ({prop-txid, place, warp}; see mockup.ts). Optional, tiny
+TX1 output carrying a packed mockup-cover manifest ({prop-txid, place, warp}; see mockup.js). Optional, tiny
  (~34 B). Tells a renderer to composite this collection's own storefront cover onto the referenced prop.
 
 ## RESTRICTION_FUNGIBLE
@@ -149,7 +149,7 @@ The embedded file is Tier-1 encrypted: the FILE output holds ciphertext; the tem
 export const RESTRICTION_COMPRESSED = 0x0010
 ```
 
-The embedded file is gzip-compressed (see compress.ts). Decompress on view, AFTER decrypting if also
+The embedded file is gzip-compressed (see compress.js). Decompress on view, AFTER decrypting if also
  encrypted (we always compress before encrypting). Set only when compression actually shrank the file.
 
 ## hexToBytes
@@ -561,7 +561,7 @@ export function encodeMockupFields(manifest: number[]): number[][]
 
 ─── MOCKUP record (TX1, optional) ──────────────────────────────────
   [ P, version, RECORD_MOCKUP, manifestBytes ]
-The manifestBytes are a packed mockup-cover manifest (mockup.ts packCover). A renderer that finds this output
+The manifestBytes are a packed mockup-cover manifest (mockup.js packCover). A renderer that finds this output
 composites the collection's storefront cover (the preview design) onto the referenced prop. Its own output so
 it never interleaves with the storefront's optional back-cover fields.
 
@@ -600,7 +600,7 @@ export interface ProfileFields {
 ─── PROFILE record (a key's self-published identity) ───────────────
   [ P, version, RECORD_PROFILE, alias, avatarMimeType, avatarBytes ]
 Locked to the publisher's own pubkey, posted on their own address; resolved by pubkey. Both fields
-optional: alias-only, avatar-only, or both. The avatar is a small pre-downscaled image (see profile.ts).
+optional: alias-only, avatar-only, or both. The avatar is a small pre-downscaled image (see profile.js).
 
 ## encodeProfileFields
 

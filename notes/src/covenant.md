@@ -25,7 +25,7 @@ interface ScriptChunk {
 }
 ```
 
-⚠⚠ THE SEAM, exactly as in `pushDrop.ts`: this module assembles script chunks in `number[]`, and the
+⚠⚠ THE SEAM, exactly as in `pushDrop.js`: this module assembles script chunks in `number[]`, and the
   wallet core's script type carries `Uint8Array`. Declaring the chunk shape HERE keeps 737 lines of
   covenant assembly untouched, and the conversion happens only where a real script is produced.
 ⛔ Do not swap this for the core's chunk type. These chunks are built by hand, opcode by opcode, and

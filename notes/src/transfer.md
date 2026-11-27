@@ -148,7 +148,7 @@ export async function scanIncoming(
 Scan the wallet's address history for incoming tokens. The notification outputs make the
 carrying transactions show up under the owner's address; we then parse each tx for token
 outputs locked to our pubkey. Verification (lightweight lineage) is the caller's
-responsibility (see verify.ts) before trusting/recording a result.
+responsibility (see verify.js) before trusting/recording a result.
 
 At `const since = opts.sinceHeight ?? -1`:
 

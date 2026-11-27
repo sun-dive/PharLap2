@@ -20,7 +20,7 @@ preference - it is what the tokens already on chain use, so it is fixed. The min
 bundling below are ported from that template.
 
 The fields themselves are opaque here — the token field layout (prefix, version,
-name, rules, ...) is defined in `tokenCodec.ts` (Phase 2).
+name, rules, ...) is defined in `tokenCodec.js` (Phase 2).
 
 ## u8
 
@@ -30,7 +30,7 @@ const u8 = (d: number[]): Uint8Array =>
 
 ⚠⚠ THE `number[]` SEAM LIVES HERE AND ONLY HERE. This module speaks `number[]`, as the application
   does; the script and transaction modules speak `Uint8Array`, as a browser does. Converting at this
-  one boundary keeps 794 lines of `tokenCodec.ts` untouched, and leaves exactly one place to change
+  one boundary keeps 794 lines of `tokenCodec.js` untouched, and leaves exactly one place to change
   the day the application moves over.
 
 ## arr

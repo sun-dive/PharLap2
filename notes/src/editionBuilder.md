@@ -24,9 +24,9 @@ the network, exactly like collectionBuilder. Network wrappers select funding + b
 const UnlockingScript = {
 ```
 
-★ A BOUNDARY, NOT A DUPLICATE. `covenant.ts` hand-assembles chunks whose `data` is `number[]`; the
+★ A BOUNDARY, NOT A DUPLICATE. `covenant.js` hand-assembles chunks whose `data` is `number[]`; the
 core script class carries `Uint8Array`. Converting here keeps that conversion in ONE place instead of
-scattering `Uint8Array.from` through every unlock. `covenant.ts` has the same shim for locking
+scattering `Uint8Array.from` through every unlock. `covenant.js` has the same shim for locking
 scripts, deliberately — see the note there.
 
 ## EditionTerms
@@ -87,7 +87,7 @@ needs. A version-1 covenant spend is rejected by consensus, not by policy.
 At `const lock = buildEditionLock({`:
 
 ⚠ `stateData` IS NOT PASSED, AND THAT IS DELIBERATE. The deployed builder passed one and the field
-builder never read it — see the note in `covenant.ts`. Dropping an ignored argument cannot change
+builder never read it — see the note in `covenant.js`. Dropping an ignored argument cannot change
 a byte, and the byte-identity vectors confirm it.
 
 ## otherInputsOf
@@ -406,7 +406,7 @@ export async function createEdition(provider: WalletProvider, key: Signer, param
   license?: string
   /** Optional 64-hex txid pointing at the full licence text minted on-chain. */
   licenseRef?: string
-  /** Optional packed mockup-cover manifest (mockup.ts packCover) — a TX1 output; the curator composites the
+  /** Optional packed mockup-cover manifest (mockup.js packCover) — a TX1 output; the curator composites the
    *  public cover onto the referenced prop. */
   mockupManifest?: number[]
   feePerKb?: number

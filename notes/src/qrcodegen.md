@@ -1,7 +1,8 @@
 # src/qrcodegen.js
 
-Vendored: Project Nayuki QR Code generator (MIT). Used only by the browser bundle (esbuild handles the
-TS namespace); not imported by node --test. Wrapped by qr.ts. See license header above.
+Vendored: Project Nayuki QR Code generator (MIT), from its TypeScript edition. Its namespace is unwound into
+top-level classes, Ecc and Mode hung on QrCode and QrSegment as before, and the constructors assign what their
+parameter properties did. Wrapped by qr.js. Its licence header stays in the file.
 
 ## namespace qrcodegen
 

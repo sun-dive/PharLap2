@@ -37,7 +37,7 @@ interface ScriptChunk {
 }
 ```
 
-⚠ The same `number[]` seam as `covenant.ts` and `pushDrop.ts`: script chunks are assembled by hand
+⚠ The same `number[]` seam as `covenant.js` and `pushDrop.js`: script chunks are assembled by hand
   here, opcode by opcode, and every one of them ends up in a script whose bytes are on chain.
 
 ## bytesBE

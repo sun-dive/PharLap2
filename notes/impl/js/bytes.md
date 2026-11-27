@@ -18,7 +18,7 @@ Byte primitives — what `Uint8Array` does not give you and `Buffer` did.
 
 ## fromHex
 
-⚠ Refuses malformed hex rather than guessing — see `src/bytes.ts` for the two implementations that
+⚠ Refuses malformed hex rather than guessing — see `src/bytes.js` for the two implementations that
  disagreed about odd-length input, producing different bytes for the same string.
 
 ## toHex

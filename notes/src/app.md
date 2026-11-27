@@ -167,7 +167,7 @@ const MNEMONIC_KEY = 'p2:wallet:mnemonic'
 
 ─── wallet ─────────────────────────────────────────────────────────
 
-The key is kept SEALED in IndexedDB (src/keystore.ts). WIF_KEY and MNEMONIC_KEY are its plain copies from
+The key is kept SEALED in IndexedDB (src/keystore.js). WIF_KEY and MNEMONIC_KEY are its plain copies from
 before the seal: read once to move them into it, and still written by a browser that cannot keep it sealed.
 
 ## DERIVATION_PATH
@@ -774,7 +774,7 @@ type QrDecode = (d: Uint8ClampedArray, w: number, h: number, o?: { inversionAtte
 ─── QR scanning (camera) ───────────────────────────────────────────
 Opens the camera in a modal and resolves with the first QR's text (or null if cancelled / no camera). Uses
 the native BarcodeDetector where available (Chromium/Android, zero cost); on browsers without it (iOS Safari,
-Firefox) it LAZY-LOADS a vendored jsQR (./jsqr.min.js) on first use, so the core bundle isn't bloated.
+Firefox) it LAZY-LOADS a vendored jsQR (./jsqr.min.js) on first use, so the page does not load it until then.
 
 ## JSQR_INTEGRITY
 
@@ -1329,7 +1329,7 @@ function downloadText(filename: string, text: string, mime = 'text/plain'): void
 
 ─── air-gapped signing (Advanced) ──────────────────────────────────
 Online box exports an unsigned request → offline box signs it with the key → online box broadcasts.
-Only files cross the gap; the key never leaves the offline machine. Engine in airgap.ts.
+Only files cross the gap; the key never leaves the offline machine. Engine in airgap.js.
 
 ## readFileText
 
@@ -1403,7 +1403,7 @@ Phar Lap's air-gap signer rebuilds what it signs, which is the right rule and st
 actions it knows. This is the other case: a transaction assembled elsewhere, around a script this
 wallet has never heard of, with a blank left where its signature goes. It cannot be rebuilt here —
 but it does not have to be TRUSTED either, because what it costs is derivable from its own bytes.
-See src/cosign.ts for why that is enough.
+See src/cosign.js for why that is enough.
 
 ## cosignSources
 
@@ -1428,7 +1428,7 @@ Read the pasted/imported transaction, fetch every input's source, and report wha
 At `const ids = [...new Set(tx.inputs.map((i) => wireToTxid(i.txid)))]`:
 
 Every input's source is needed to know its VALUE — without which the fee, and therefore the true
-cost of signing, cannot be worked out. cosign.ts refuses rather than guess, so gather them first.
+cost of signing, cannot be worked out. cosign.js refuses rather than guess, so gather them first.
 
 At `catch {`:
 
@@ -1653,7 +1653,7 @@ const MARKERS_KEY_PREFIX = 'p2:markers:'
 ─── token backup: every marker and token this wallet has received ──
 
 Kept in this browser per address, brought up to date each time a wallet loads (only what is new since
-the last use is fetched), and saved as a file to move to another device. See src/markerBackup.ts.
+the last use is fetched), and saved as a file to move to another device. See src/markerBackup.js.
 
 ## markerBackup
 
@@ -1813,7 +1813,7 @@ async function onVerify(txId: string, outputIndex: number): Promise<void>
 At `const out = tx.outputs[outputIndex]`:
 
 Edition covenant: O(1) bind to the collection — byte-match the token's covenant against the template
-TX1 committed (proves genuine, immutable rules; no lineage walk needed — see verify.ts / MPT thesis).
+TX1 committed (proves genuine, immutable rules; no lineage walk needed — see verify.js / MPT thesis).
 
 At `` let anchor = `TX1 ${short(r.collectionId ?? '')}` ``:
 
@@ -2534,7 +2534,7 @@ const metaInFlight = new Map<string, Promise<void>>()
 ```
 
 Per-collection card metadata (thumbnail + content MIME type) is derived from ONE TX1 fetch, deduped per
-collection and cached locally (see thumbs.ts) — never stored on-chain. The fetch runs async so the card
+collection and cached locally (see thumbs.js) — never stored on-chain. The fetch runs async so the card
 list renders instantly; thumbnails fill in and the type sections settle once the cache warms.
 
 ## fillCardThumb

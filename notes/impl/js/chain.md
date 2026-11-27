@@ -96,7 +96,7 @@ At `const after = resp.headers?.get?.('retry-after')`:
 
 ⛔ THE `Provider` CLASS THAT STOOD HERE IS GONE, and its removal is the point rather than a tidy-up.
 
-⚠⚠ It reimplemented eight methods of `src/walletProvider.ts` — getUtxos, broadcast, relayBroadcast,
+⚠⚠ It reimplemented eight methods of `src/walletProvider.js` — getUtxos, broadcast, relayBroadcast,
   visibleOn, awaitInMempool, confirmLanded, registerPendingTx, getRawTransaction — and not one of
   them was unique to it. That file is 614 lines of deployed code of which SEVEN touched the removed
   library; rewriting a subset of it was work that did not need doing, and it silently dropped the

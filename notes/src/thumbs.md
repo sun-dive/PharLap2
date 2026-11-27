@@ -12,7 +12,7 @@ A thumbnail is a pure DISPLAY convenience, derived in-browser from a collection'
 image (or public image file) and cached in localStorage. NOTHING extra goes on-chain: a thumbnail is
 fully regenerable from public data, so it belongs in a disposable local cache, not the permanent ledger
 (which we keep as lean as possible). Browser-only (canvas + createImageBitmap/`<img>` + localStorage);
-the fetch + source-selection lives in app.ts, this module owns the cache + the decode + the downscale.
+the fetch + source-selection lives in app.js, this module owns the cache + the decode + the downscale.
 
 ## NONE
 

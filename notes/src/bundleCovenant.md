@@ -30,7 +30,7 @@ interface ScriptChunk {
 }
 ```
 
-Chunks are assembled in `number[]`, as in `covenant.ts`; the conversion to the core script type happens once,
+Chunks are assembled in `number[]`, as in `covenant.js`; the conversion to the core script type happens once,
  in `LockingScript.from` below.
 
 ## op

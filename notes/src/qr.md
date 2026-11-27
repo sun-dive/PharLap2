@@ -1,7 +1,7 @@
 # src/qr.js
 
 QR helpers for PHAR LAP: render text to a crisp inline-SVG QR code, and build a BSV payment URI.
-Thin wrapper over the vendored Nayuki generator (qrcodegen.ts).
+Thin wrapper over the vendored Nayuki generator (qrcodegen.js).
 
 ## bsvPaymentUri
 

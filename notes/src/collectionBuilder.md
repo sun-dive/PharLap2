@@ -160,7 +160,7 @@ export async function buildTemplateTx(opts: {
   file?: FileFields
   /** Optional immutable storefront record (description + optional cover image), TX1-resident. */
   storefront?: StorefrontFields
-  /** Optional packed mockup-cover manifest (mockup.ts packCover) — carried as its own TX1 output. */
+  /** Optional packed mockup-cover manifest (mockup.js packCover) — carried as its own TX1 output. */
   mockup?: number[]
   outputSats?: number
   feePerKb?: number
@@ -229,7 +229,7 @@ export interface CollectionParams {
   license?: string
   /** Optional 64-hex txid pointing at the full licence text minted on-chain. */
   licenseRef?: string
-  /** Optional packed mockup-cover manifest (mockup.ts packCover) — a TX1 output; the curator composites the
+  /** Optional packed mockup-cover manifest (mockup.js packCover) — a TX1 output; the curator composites the
    *  public cover onto the referenced prop. */
   mockupManifest?: number[]
   /** How many token outputs to mint in TX2. Default: supply if > 0, else 1. */

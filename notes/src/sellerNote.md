@@ -88,7 +88,7 @@ Publish (or overwrite) the seller's note for a collection, with an optional bonu
 
 At `const selected = selectFunding(await getSafeUtxos(provider), PHARLAP_OUTPUT_SATS + 500)`:
 
-⚠ THE +500 IS THE DEPLOYED HEADROOM AND IS DELIBERATELY NOT THE +600 `broadcast.ts` USES. Each was
+⚠ THE +500 IS THE DEPLOYED HEADROOM AND IS DELIBERATELY NOT THE +600 `broadcast.js` USES. Each was
   sized against its own record, and a note is capped far larger. Left alone rather than harmonised:
   the fee is computed from the real signed size below, so the only thing this figure decides is how
   many UTXOs get pulled in.
@@ -148,6 +148,6 @@ Newest first: unconfirmed (height 0 → +inf), then descending block height.
 At `const seller = sellerPubKeyHex.toLowerCase()`:
 
 ⚠⚠ MATCHED BY RAW HEX, WHICH IS NOT WHAT THE ADDRESS ABOVE WAS DERIVED FROM. The same inconsistency
-  is pinned in `broadcast.ts`: an uncompressed caller scans exactly the right address and then
+  is pinned in `broadcast.js`: an uncompressed caller scans exactly the right address and then
   matches no record. ⛔ Preserved rather than fixed — normalising this would change which records the
   application considers its own, and that is a decision, not a tidy-up.

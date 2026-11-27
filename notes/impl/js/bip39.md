@@ -23,7 +23,7 @@ worse than a stale document, because it sat two lines above the import that cont
   ★ It is now `@noble/hashes`, directly and SYNCHRONOUSLY, and that is the whole reason this project
     has a dependency at all: **the browser's own crypto cannot do this.** `crypto.subtle` is
     asynchronous, and a seed derivation sitting inside a synchronous key derivation cannot await.
-  ⚠ Contrast `contentCrypto.ts`, which DOES use the browser's AES: there the call site can await, so
+  ⚠ Contrast `contentCrypto.js`, which DOES use the browser's AES: there the call site can await, so
     the platform's implementation is both usable and better. The rule is not "avoid WebCrypto", it is
     "WebCrypto where the call site can await, and this one cannot".
 
