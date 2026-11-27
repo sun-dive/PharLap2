@@ -12,7 +12,7 @@
  *   ★ WebCrypto accepts it - measured in Node and in Chromium over `file://`, which is what the
  *     air-gapped wallet runs on.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -33,8 +33,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'cc-'))
 const out = join(tmp, 'contentCrypto.mjs')
-await build({ entryPoints: [join(HERE, '..', 'src', 'contentCrypto.ts')], bundle: true, outfile: out,
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'contentCrypto.js')], outfile: out })
 const CC = await import(pathToFileURL(out).href)
 
 // ── ★★★ THE REQUIREMENT: read back what is already on chain ─────────────────────────────────────────

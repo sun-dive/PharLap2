@@ -7,7 +7,7 @@
  *   deployed code did. The vectors also record the verdict an interpreter gave each resale when they were
  *   frozen: the honest one accepted, and every tampered one refused.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -31,8 +31,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'bundle-'))
 const load = async m => {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
   return import(pathToFileURL(join(tmp, `${m}.mjs`)).href)
 }
 const BC = await load('bundleCovenant')

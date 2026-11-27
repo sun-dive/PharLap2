@@ -52,7 +52,7 @@ const buildId = (() => {
 const buildDate = new Date().toISOString().slice(0, 10)
 
 const result = await build({
-  entryPoints: ['src/app.ts'],
+  entryPoints: ['src/app.js'],
   bundle: true,
   outfile: 'testbundle2.js',
   platform: 'browser',

@@ -15,7 +15,7 @@
  *   frozen from a real mainnet spend, and it is the check that must exist before anything is broadcast.
  *   Nothing here should be read as standing in for it.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -31,8 +31,7 @@ const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'eb-'))
 for (const m of ['editionBuilder', 'covenant']) {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
 }
 const EB = await import(pathToFileURL(join(tmp, 'editionBuilder.mjs')).href)
 const CV = await import(pathToFileURL(join(tmp, 'covenant.mjs')).href)

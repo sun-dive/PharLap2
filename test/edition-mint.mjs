@@ -7,7 +7,7 @@
  *   in the same transaction. The wallet held enough; the estimate did not ask for it. The coins here are the
  *   test wallet's real set at the time.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -23,8 +23,7 @@ const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'emint-'))
 const load = async m => {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
   return import(pathToFileURL(join(tmp, `${m}.mjs`)).href)
 }
 const EB = await load('editionBuilder')

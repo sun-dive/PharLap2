@@ -13,7 +13,7 @@
  *   encryption derives its IV from the shared secret, so it is deterministic. What IS fixed is the part
  *   that was ours to control - what sits at the front of the plaintext.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -34,8 +34,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'mc-'))
 const out = join(tmp, 'messageCodec.mjs')
-await build({ entryPoints: [join(HERE, '..', 'src', 'messageCodec.ts')], bundle: true, outfile: out,
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'messageCodec.js')], outfile: out })
 const MC = await import(pathToFileURL(out).href)
 
 const sender = Signer.fromPrivateKey(fromHex(V.senderPriv))

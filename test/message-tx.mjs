@@ -3,7 +3,7 @@
  * Message transactions — graded on BYTE-IDENTICAL TRANSACTIONS against the deployed builder, then driven
  * end to end: a message sent through a fake network is found and opened by the recipient, and by nobody else.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -27,8 +27,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'msgtx-'))
 const load = async m => {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
   return import(pathToFileURL(join(tmp, `${m}.mjs`)).href)
 }
 const MB = await load('messageBuilder')

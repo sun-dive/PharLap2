@@ -6,7 +6,7 @@
  *   error: a spread argument escapes TypeScript's check. The block height was lost that way, and the
  *   holdings list then fell back to the moment each token was added, which after a restore is all one moment.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -17,8 +17,7 @@ let pass = 0, fail = 0
 const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'tstore-'))
-await build({ entryPoints: [join(HERE, '..', 'src', 'pharlapStore.ts')], bundle: true, outfile: join(tmp, 'ps.mjs'),
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'pharlapStore.js')], outfile: join(tmp, 'ps.mjs') })
 const PS = await import(pathToFileURL(join(tmp, 'ps.mjs')).href)
 
 const memory = () => { const m = new Map(); return { getItem: k => m.get(k) ?? null, setItem: (k, v) => { m.set(k, v) } } }

@@ -6,7 +6,7 @@
  *   all derived from the node identity, and posts already made land at the deployed derivation. So those are
  *   graded on byte identity first, then the post transaction itself, then the walk up a real lineage.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -28,8 +28,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'disc-'))
 const load = async m => {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
   return import(pathToFileURL(join(tmp, `${m}.mjs`)).href)
 }
 const DS = await load('discussion')

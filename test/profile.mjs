@@ -3,7 +3,7 @@
  * Profiles — publish-to-self, graded on BYTE-IDENTICAL TRANSACTIONS against the deployed publisher, then
  * resolved: the newest profile on the key's address wins, and a key with no history has no profile.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -24,8 +24,7 @@ if (V === null) {
 }
 
 const tmp = mkdtempSync(join(tmpdir(), 'prof-'))
-await build({ entryPoints: [join(HERE, '..', 'src', 'profile.ts')], bundle: true, outfile: join(tmp, 'profile.mjs'),
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'profile.js')], outfile: join(tmp, 'profile.mjs') })
 const PR = await import(pathToFileURL(join(tmp, 'profile.mjs')).href)
 
 const key = Signer.fromPrivateKey(fromHex(V.key))

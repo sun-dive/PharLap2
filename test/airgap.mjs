@@ -5,7 +5,7 @@
  * ★★★ THE REQUEST FILE IS A FORMAT THAT CROSSES MACHINES. The vectors hold requests the deployed watch side
  *   wrote; ours must decode them, sign them to the same raw bytes, and write the same file for the same inputs.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -26,8 +26,7 @@ if (V === null) {
 }
 
 const tmp = mkdtempSync(join(tmpdir(), 'airgap-'))
-await build({ entryPoints: [join(HERE, '..', 'src', 'airgap.ts')], bundle: true, outfile: join(tmp, 'airgap.mjs'),
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'airgap.js')], outfile: join(tmp, 'airgap.mjs') })
 const AG = await import(pathToFileURL(join(tmp, 'airgap.mjs')).href)
 
 const owner = Signer.fromPrivateKey(fromHex(V.ownerKey))

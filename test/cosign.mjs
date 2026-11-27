@@ -13,7 +13,7 @@
  *   the fee we computed would be a lie we told ourselves. Hence: every source must hash to the txid its
  *   input names, and a missing one is a refusal rather than a display gap.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -32,8 +32,7 @@ const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'cs-'))
 const out = join(tmp, 'cosign.mjs')
-await build({ entryPoints: [join(HERE, '..', 'src', 'cosign.ts')], bundle: true, outfile: out,
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'cosign.js')], outfile: out })
 const CS = await import(pathToFileURL(out).href)
 
 const me = Signer.fromSeed(new Uint8Array(64).fill(71))

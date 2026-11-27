@@ -6,7 +6,7 @@
  * ⚠ The case it exists for: a token whose marker has been spent and whose transaction the explorer's
  *   history no longer lists. Only a record kept by the wallet itself still names that transaction.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -23,12 +23,11 @@ const throws = (f, m) => { try { f(); return false } catch (e) { return String(e
 
 const tmp = mkdtempSync(join(tmpdir(), 'mbak-'))
 const load = async (name, file) => {
-  await build({ entryPoints: [join(HERE, '..', 'src', file)], bundle: true, outfile: join(tmp, name),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', file)], outfile: join(tmp, name) })
   return import(pathToFileURL(join(tmp, name)).href)
 }
-const MB = await load('mb.mjs', 'markerBackup.ts')
-const EB = await load('eb.mjs', 'editionBuilder.ts')
+const MB = await load('mb.mjs', 'markerBackup.js')
+const EB = await load('eb.mjs', 'editionBuilder.js')
 
 const publisher = Signer.fromSeed(new Uint8Array(64).fill(81))
 const holder = Signer.fromSeed(new Uint8Array(64).fill(82))

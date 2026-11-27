@@ -11,7 +11,7 @@
  *   the envelope was sent by OUR key. Either check alone is insufficient: anyone can post a record to
  *   our address, and anyone can lock a record to our public key. Both are tested by forging each.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -27,13 +27,11 @@ const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'cfg-'))
 const out = join(tmp, 'configBackup.mjs')
-await build({ entryPoints: [join(HERE, '..', 'src', 'configBackup.ts')], bundle: true, outfile: out,
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'configBackup.js')], outfile: out })
 const CB = await import(pathToFileURL(out).href)
 // ★ the two collaborators, built the same way, so a forgery can be assembled exactly as an attacker would
 for (const m of ['tokenCodec', 'messageCodec']) {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
 }
 
 const me = Signer.fromSeed(new Uint8Array(64).fill(11))

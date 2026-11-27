@@ -9,7 +9,7 @@
  *   left after the fee, so the same mechanism that pays our own change sweeps the wallet instead. One
  *   call covers both because "the output that takes the remainder" is the only idea involved.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -32,8 +32,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'pay-'))
 const out = join(tmp, 'payment.mjs')
-await build({ entryPoints: [join(HERE, '..', 'src', 'payment.ts')], bundle: true, outfile: out,
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'payment.js')], outfile: out })
 const P = await import(pathToFileURL(out).href)
 
 const key = Signer.fromPrivateKey(fromHex(V.key))

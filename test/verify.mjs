@@ -10,7 +10,7 @@
  *   a transaction that has no template. A provider returning a different transaction from the one asked
  *   for. A parent from another collection. None of those look wrong; they have to be checked.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -25,8 +25,7 @@ const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'vf-'))
 for (const m of ['verify', 'tokenCodec', 'covenant']) {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
 }
 const V = await import(pathToFileURL(join(tmp, 'verify.mjs')).href)
 const TC = await import(pathToFileURL(join(tmp, 'tokenCodec.mjs')).href)

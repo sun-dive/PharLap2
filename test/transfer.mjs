@@ -6,7 +6,7 @@
  * whose inputs are signed two different ways in one transaction. The vectors freeze what the deployed
  * builder produced for fixed keys, a fixed genesis and fixed funding; ours must match the raw hex.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -30,8 +30,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'xfer-'))
 const load = async m => {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
   return import(pathToFileURL(join(tmp, `${m}.mjs`)).href)
 }
 const TR = await load('transfer')

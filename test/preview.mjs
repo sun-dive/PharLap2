@@ -3,7 +3,7 @@
  * Preview clips — a large public payload, graded on BYTE-IDENTICAL TRANSACTIONS against the deployed
  * publisher, then resolved: the right collection, authored by the right key, and nothing else.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -24,8 +24,7 @@ if (V === null) {
 }
 
 const tmp = mkdtempSync(join(tmpdir(), 'prev-'))
-await build({ entryPoints: [join(HERE, '..', 'src', 'preview.ts')], bundle: true, outfile: join(tmp, 'preview.mjs'),
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'preview.js')], outfile: join(tmp, 'preview.mjs') })
 const PV = await import(pathToFileURL(join(tmp, 'preview.mjs')).href)
 
 const key = Signer.fromPrivateKey(fromHex(V.key))

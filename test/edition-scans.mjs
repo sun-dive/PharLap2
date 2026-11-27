@@ -7,7 +7,7 @@
  *   old name passes every static check and fails only when a real transaction arrives. That is what this
  *   file exists to run: the scans against real transaction objects, end to end.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -21,11 +21,9 @@ let pass = 0, fail = 0
 const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'escan-'))
-await build({ entryPoints: [join(HERE, '..', 'src', 'editionBuilder.ts')], bundle: true, outfile: join(tmp, 'eb.mjs'),
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'editionBuilder.js')], outfile: join(tmp, 'eb.mjs') })
 const EB = await import(pathToFileURL(join(tmp, 'eb.mjs')).href)
-await build({ entryPoints: [join(HERE, '..', 'src', 'covenant.ts')], bundle: true, outfile: join(tmp, 'cv.mjs'),
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'covenant.js')], outfile: join(tmp, 'cv.mjs') })
 const CV = await import(pathToFileURL(join(tmp, 'cv.mjs')).href)
 
 const publisher = Signer.fromSeed(new Uint8Array(64).fill(71))

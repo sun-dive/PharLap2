@@ -7,7 +7,7 @@
  *   scanning the publisher's address. So the two things that matter are that a published announcement
  *   comes back, and that the address a holder scans is the one the publisher actually posted to.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -23,8 +23,7 @@ const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'bc-'))
 for (const m of ['broadcast', 'bytes']) {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
 }
 const B = await import(pathToFileURL(join(tmp, 'broadcast.mjs')).href)
 const BY = await import(pathToFileURL(join(tmp, 'bytes.mjs')).href)

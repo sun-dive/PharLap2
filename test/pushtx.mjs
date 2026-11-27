@@ -10,7 +10,7 @@
  * ⚠⚠ SO NOTHING HERE IS GRADED ON "DOES IT WORK". It is graded on producing the SAME BYTES the deployed
  *   code produces, and the vectors are frozen from that code.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -32,8 +32,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'ptx-'))
 for (const m of ['pushtx', 'covenant']) {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
 }
 const PT = await import(pathToFileURL(join(tmp, 'pushtx.mjs')).href)
 const CV = await import(pathToFileURL(join(tmp, 'covenant.mjs')).href)

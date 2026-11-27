@@ -11,7 +11,7 @@
  *   reachable at all: a 429 storm, a relay that accepts a transaction and then drops it, two relays
  *   disagreeing. None of those can be asked for on demand from a live service.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { ChainHttp } from '../impl/js/chain.mjs'
 import { Signer, txidToWire } from '../impl/js/signer.mjs'
 import { Tx } from '../impl/js/transaction.mjs'
@@ -23,8 +23,7 @@ import { tmpdir } from 'node:os'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const tmp = mkdtempSync(join(tmpdir(), 'wp-'))
 const out = join(tmp, 'walletProvider.mjs')
-await build({ entryPoints: [join(HERE, '..', 'src', 'walletProvider.ts')], bundle: true, outfile: out,
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'walletProvider.js')], outfile: out })
 const WP = await import(pathToFileURL(out).href)
 // ★ the cadence comes from the file that OWNS it, so the test cannot drift from the code
 const { GATE_POLL_TRIES, GATE_POLL_INTERVAL_MS, CONFIRM_POLL_TRIES, CONFIRM_POLL_INTERVAL_MS } = WP
@@ -237,7 +236,7 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
 {
   const TP = await (async () => {
     const o = join(tmp, 'tokenProtocol.mjs')
-    await build({ entryPoints: [join(HERE, '..', 'src', 'tokenProtocol.ts')], bundle: true, outfile: o, platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+    await link({ entryPoints: [join(HERE, '..', 'src', 'tokenProtocol.js')], outfile: o })
     return import(pathToFileURL(o).href)
   })()
   const { createHash } = await import('node:crypto')

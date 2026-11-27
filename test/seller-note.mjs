@@ -11,7 +11,7 @@
  *   block height. Get that backwards and the storefront shows a buyer a note the seller replaced months
  *   ago, with nothing anywhere reporting an error.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -27,8 +27,7 @@ const ok = (c, w) => { c ? pass++ : (fail++, console.log(`  ✗ ${w}`)) }
 
 const tmp = mkdtempSync(join(tmpdir(), 'sn-'))
 for (const m of ['sellerNote', 'bytes']) {
-  await build({ entryPoints: [join(HERE, '..', 'src', `${m}.ts`)], bundle: true, outfile: join(tmp, `${m}.mjs`),
-                platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+  await link({ entryPoints: [join(HERE, '..', 'src', `${m}.js`)], outfile: join(tmp, `${m}.mjs`) })
 }
 const SN = await import(pathToFileURL(join(tmp, 'sellerNote.mjs')).href)
 const BY = await import(pathToFileURL(join(tmp, 'bytes.mjs')).href)

@@ -12,7 +12,7 @@
  *   are legal; only one matches what already exists. The vectors below include that case precisely so
  *   the day someone tidies it away, this fails.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -36,8 +36,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'pd-'))
 const out = join(tmp, 'pushDrop.mjs')
-await build({ entryPoints: [join(HERE, '..', 'src', 'pushDrop.ts')], bundle: true, outfile: out,
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'pushDrop.js')], outfile: out })
 const PD = await import(pathToFileURL(out).href)
 const unhex = h => Array.from(fromHex(h))
 

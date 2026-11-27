@@ -12,7 +12,7 @@
  *   is valid. One with the change output in a different place is valid. Both would be a different txid,
  *   and a mint's txid is the collection's identity for its whole life.
  */
-import { build } from 'esbuild'
+import { link } from './link.mjs'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -34,8 +34,7 @@ if (V === null) {
 
 const tmp = mkdtempSync(join(tmpdir(), 'cb-'))
 const out = join(tmp, 'collectionBuilder.mjs')
-await build({ entryPoints: [join(HERE, '..', 'src', 'collectionBuilder.ts')], bundle: true, outfile: out,
-              platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent' })
+await link({ entryPoints: [join(HERE, '..', 'src', 'collectionBuilder.js')], outfile: out })
 const CB = await import(pathToFileURL(out).href)
 
 const key = Signer.fromPrivateKey(fromHex(V.key))
