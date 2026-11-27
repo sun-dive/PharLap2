@@ -1,18 +1,4 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
-/**
- * BSV transactions — serialize · parse · txid · BIP-143 sighash.
- *
- * ⚠⚠ THE SILENT FAILURES THIS EXISTS TO AVOID, every one of which produces a well-formed result:
- *   · an **8-byte amount packed as 4** — identical below 42.9 BTC, wrong above it
- *   · a **varint written as one byte** past 0xfc — shifts every following field
- *   · **scriptCode double-prefixed** — BIP-143 PRINTS it with its length already attached
- *   · **SIGHASH_SINGLE past the last output** — zeros here, NOT Bitcoin's legacy `uint256(1)` bug
- *   · a **txid not reversed** — the wire order and the display order are opposites, always
- *
- * ★ FORKID changes nothing about the arithmetic: with BSV's fork id of 0, `0x41` serializes as
- *   `41000000` like any other type. ⇒ Which is why BIP-143's own vectors, with FORKID clear, grade
- *   this layout end to end.
- */
 import { sha256 } from '@noble/hashes/sha2.js'
 import { concat, fromHex, toHex, reversed, readU16LE, readU32LE, readU64LE, u16LE, u32LE, u64LE } from './bytes.mjs'
 
@@ -56,15 +42,12 @@ export class Tx {
     ;[n, o] = readVarint(b, o)
     for (let i = 0; i < n; i++) {
       need(b, o, 8)
-      // ⚠ 8 BYTES, not 4. A 4-byte read is identical below 42.9 BTC and silently wrong above it.
       const value = Number(readU64LE(b, o)); o += 8
       let len; [len, o] = readVarint(b, o)
       need(b, o, len)
       tx.outputs.push({ value, script: b.subarray(o, o + len) }); o += len
     }
     need(b, o, 4); tx.locktime = readU32LE(b, o); o += 4
-    // ⛔ TRAILING BYTES ARE AN ERROR. A parser that ignores them accepts two different transactions as
-    //   the same one, and the txid it reports belongs to neither.
     if (o !== b.length) throw new Error(`${b.length - o} trailing byte(s) after the transaction`)
     return tx
   }
@@ -83,33 +66,24 @@ export class Tx {
   }
 
   hex() { return toHex(this.serialize()) }
-  /** ⚠ The txid a person reads is the hash REVERSED. */
-  /** ⚠ The txid a person reads is the hash REVERSED — and `reversed` copies, never mutates. */
   txid() { return toHex(reversed(dsha256(this.serialize()))) }
-  /** ★ 100 sat/KB, never ARC's suggestion. ⚠ Rounded UP: a fee below the floor is a stuck tx. */
   fee(satPerKb = 100) { return Math.ceil(this.serialize().length * satPerKb / 1000) }
 }
 
 export const SIGHASH = { ALL: 0x01, NONE: 0x02, SINGLE: 0x03, FORKID: 0x40, ANYONECANPAY: 0x80, ALL_FORKID: 0x41 }
 const ZERO32 = new Uint8Array(32)
 
-/**
- * @param scriptCode the locking script being spent, RAW — its varint length is added here.
- *   ⚠⚠ BIP-143's published examples print it WITH the prefix; passing one in unchanged double-prefixes
- *   it and yields a preimage that is wrong and looks entirely plausible.
- */
 export function preimage(tx, inputIndex, scriptCode, amount, sighashType = SIGHASH.ALL_FORKID) {
   const inp = tx.inputs[inputIndex]
   if (!inp) throw new Error(`no input at index ${inputIndex}`)
   if (amount < 0) throw new Error('an amount cannot be negative')
-  const base = sighashType & 0x1f              // ⚠ masks off FORKID (0x40) AND ANYONECANPAY (0x80)
+  const base = sighashType & 0x1f
   const acp = (sighashType & SIGHASH.ANYONECANPAY) !== 0
 
   let hashPrevouts = ZERO32, hashSequence = ZERO32, hashOutputs = ZERO32
 
   if (!acp) {
     hashPrevouts = dsha256(concat(...tx.inputs.flatMap(i => [i.txid, u32LE(i.vout)])))
-    // ⚠ sequences are committed ONLY for ALL — NONE and SINGLE leave them free to change
     if (base !== SIGHASH.SINGLE && base !== SIGHASH.NONE)
       hashSequence = dsha256(concat(...tx.inputs.map(i => u32LE(i.sequence))))
   }
@@ -117,7 +91,6 @@ export function preimage(tx, inputIndex, scriptCode, amount, sighashType = SIGHA
   if (base !== SIGHASH.SINGLE && base !== SIGHASH.NONE)
     hashOutputs = dsha256(concat(...tx.outputs.map(outBytes)))
   else if (base === SIGHASH.SINGLE && tx.outputs[inputIndex])
-    // ⛔ past the last output this stays ZEROS, not Bitcoin's legacy uint256(1) bug — BIP-143 fixed it
     hashOutputs = dsha256(outBytes(tx.outputs[inputIndex]))
 
   return concat(u32LE(tx.version), hashPrevouts, hashSequence, inp.txid, u32LE(inp.vout),
