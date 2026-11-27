@@ -1,7 +1,11 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
- * The page's file hashes: index.html names every module the app loads, each with its SHA-384, and the browser
- * refuses a file that does not match. The hash of index.html then stands for the whole app.
+ * The page's file hashes. index.html carries an import map naming every module the app loads with its SHA-384, and the
+ * browser checks every import against it and refuses a file that does not match. Its script policy (a meta tag) names
+ * the import map's own hash, since script inside the page is otherwise refused. The hash of index.html then stands
+ * for the whole app. Each module also gets a modulepreload link (with its hash), so the browser fetches them at once.
+ * ⚠ The preload hashes alone do not protect: measured 27 Nov, Firefox 160 ran a changed module under any cache
+ *   header and Chromium 158 under `no-store`. The import map refused it in every case.
  *
  *   node tools/integrity.mjs            refresh index.html (and app.js's QR scanner hash) from the files on disk
  *   node tools/integrity.mjs --staged   the same from the staged files, written into the commit (the pre-commit hook)
@@ -54,7 +58,8 @@ async function modules(appJs) {
 }
 
 const JSQR_LINE = /const JSQR_INTEGRITY = '[^']*'/
-const BLOCK = /^([ \t]*)<link rel="modulepreload"[^\n]*\n(?:[ \t]*<link rel="modulepreload"[^\n]*\n)*[ \t]*<script type="module" src="\.\/src\/app\.js"[^\n]*<\/script>/m
+const BLOCK = /^([ \t]*)<script type="importmap">[\s\S]*?<script type="module" src="\.\/src\/app\.js"[^\n]*<\/script>/m
+const META = /<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'sha256-[^']*'">/
 
 /** app.js and index.html as they should read, given the files as they are. */
 async function expected(appJs, page) {
@@ -62,11 +67,17 @@ async function expected(appJs, page) {
   const app = appJs.replace(JSQR_LINE, `const JSQR_INTEGRITY = '${sri(read(JSQR))}'`)
   const mods = await modules(app)
   const m = BLOCK.exec(page)
-  if (!m) throw new Error(`${PAGE} has no module block (modulepreload links, then the app's module script)`)
+  if (!m) throw new Error(`${PAGE} has no module block (the import map through the app's module script)`)
+  if (!META.test(page)) throw new Error(`${PAGE} has no Content-Security-Policy meta tag naming the import map's hash`)
   const ind = m[1]
-  const lines = mods.filter((p) => p !== ENTRY).map((p) => `${ind}<link rel="modulepreload" href="./${p}" integrity="${sri(p === ENTRY ? app : read(p))}">`)
+  const hash = (p) => sri(p === ENTRY ? app : read(p))
+  const entries = mods.map((p) => `${ind}    ${JSON.stringify('./' + p)}: ${JSON.stringify(hash(p))}`)
+  const map = `\n${ind}{\n${ind}  "integrity": {\n${entries.join(',\n')}\n${ind}  }\n${ind}}\n${ind}`
+  const lines = [`${ind}<script type="importmap">${map}</script>`]
+  for (const p of mods) if (p !== ENTRY) lines.push(`${ind}<link rel="modulepreload" href="./${p}" integrity="${hash(p)}">`)
   lines.push(`${ind}<script type="module" src="./${ENTRY}" integrity="${sri(app)}"></script>`)
-  return { app, page: page.replace(BLOCK, () => lines.join('\n')), count: mods.length }
+  const policy = `<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'sha256-${createHash('sha256').update(map).digest('base64')}'">`
+  return { app, page: page.replace(BLOCK, () => lines.join('\n')).replace(META, () => policy), count: mods.length }
 }
 
 function stage(rel, text) {
@@ -93,7 +104,9 @@ try {
     const diskApp = readFileSync(join(ROOT, ENTRY), 'utf8')
     writeFileSync(join(ROOT, ENTRY), diskApp.replace(JSQR_LINE, want.app.match(JSQR_LINE)[0]))
     const diskPage = readFileSync(join(ROOT, PAGE), 'utf8')
-    if (BLOCK.test(diskPage)) writeFileSync(join(ROOT, PAGE), diskPage.replace(BLOCK, () => BLOCK.exec(want.page)[0]))
+    if (BLOCK.test(diskPage) && META.test(diskPage)) {
+      writeFileSync(join(ROOT, PAGE), diskPage.replace(BLOCK, () => BLOCK.exec(want.page)[0]).replace(META, () => want.page.match(META)[0]))
+    }
   } else {
     if (want.app !== appJs) writeFileSync(join(ROOT, ENTRY), want.app)
     if (want.page !== page) writeFileSync(join(ROOT, PAGE), want.page)

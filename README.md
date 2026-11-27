@@ -123,7 +123,8 @@ is the difference between *"you may copy this"* and *"you may copy this and not 
 ## The page
 
 The page runs this repository's files as they are, with no build. `index.html` names each file it loads with its
-SHA-384, and the browser refuses a file that does not match, so the hash of `index.html` stands for the whole app.
+SHA-384 in an import map, and carries its own script policy; the browser refuses a file that does not match, so the
+hash of `index.html` stands for the whole app.
 
 ```
 git config core.hooksPath tools/hooks    once per clone: each commit then refreshes the hashes itself

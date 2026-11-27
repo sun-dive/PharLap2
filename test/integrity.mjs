@@ -51,6 +51,21 @@ const copy = () => {
   ok(!check(d), 'a changed QR scanner (stale JSQR_INTEGRITY) fails')
   rmSync(d, { recursive: true, force: true })
 }
+{
+  const d = copy()
+  const page = readFileSync(join(d, 'index.html'), 'utf8')
+  writeFileSync(join(d, 'index.html'), page.replace(/("\.\/src\/keystore\.js": "sha384-)[^"]+"/, '$1AAAA"'))
+  ok(!check(d), 'an import map entry with the wrong hash fails')
+  rmSync(d, { recursive: true, force: true })
+}
+{
+  const d = copy()
+  const page = readFileSync(join(d, 'index.html'), 'utf8')
+  writeFileSync(join(d, 'index.html'), page.replace(/'sha256-[^']+'/, "'sha256-AAAA'"))
+  ok(!check(d), 'a policy that does not name the import map\'s hash fails')
+  rmSync(d, { recursive: true, force: true })
+}
+
 
 console.log('── 3 · script is loaded only by import, or by a script element with a hash ──')
 const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) =>

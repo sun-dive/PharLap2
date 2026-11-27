@@ -24,14 +24,12 @@ const ok = (c, what) => { if (c) pass++; else { fail++; console.log('  ✗ ' + w
 
 // ── the page, served from this folder ──
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' }
-// The wallet page is served with the policy the host sends (from .htaccess), so every check here runs under it.
-const policy = /<Files "index\.html">\s*Header set Content-Security-Policy "([^"]+)"/.exec(readFileSync(join(ROOT, '.htaccess'), 'utf8'))?.[1]
+// The wallet page carries its script policy in index.html, so every check here runs under it.
 const server = createServer(async (req, res) => {
   const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '')
   const file = path.endsWith('/') ? path + 'index.html' : path
   try {
     const body = await readFile(join(ROOT, file)), head = { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' }
-    if (file === '/index.html' && policy != null) head['content-security-policy'] = policy
     res.writeHead(200, head); res.end(body)
   }
   catch { res.writeHead(404); res.end() }

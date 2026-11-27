@@ -25,9 +25,6 @@ AddType text/javascript .mjs
   <FilesMatch "\.(woff2?|ttf|eot)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
-  # The wallet page runs only this site's own script files: nothing injected into it runs, nor a publisher's SVG or
-  # HTML opened from it (a blob: page takes this policy). Only index.html: share.php's redirect is an inline script.
-  <Files "index.html">
-    Header set Content-Security-Policy "script-src 'self'"
-  </Files>
+  # The wallet page's script policy is in index.html itself, so the page's hash covers it and it names the hash of
+  # the page's import map. ⛔ Never send one here as well: a header policy without that hash refuses the import map.
 </IfModule>

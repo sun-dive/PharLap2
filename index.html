@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'sha256-hE3BysNkljsctofDbo8zH/Fknkkr+tQq1GQAFzcE5EY='">
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" type="image/svg+xml" href="./brand/bitcoin-sv.svg" />
   <meta name="theme-color" content="#eab300" />
@@ -1188,6 +1189,74 @@
     </div>
   </div>
 
+  <script type="importmap">
+  {
+    "integrity": {
+      "./impl/js/address.mjs": "sha384-E9squlJAedNrCyhRBJSa5+dOSS2uglbG3HpDW+R/HBm9uOSG9B2Cld6NvqGON5P5",
+      "./impl/js/bip32.mjs": "sha384-Yw2aMpKhWWGmQV2QNm2YE9F7H3XfOfe4bnOG8fox+XUnYnEjcgnWghNTZAJmLTPB",
+      "./impl/js/bip39.mjs": "sha384-wDrGvaUX1kWPmJ2T6D7XnOTOr3wFjiwEwH/3HPa2iN0SdpA3fYhMpkXjoCmW6Zir",
+      "./impl/js/bytes.mjs": "sha384-B3AMKsznJeyZxu5Le4j4BIjdGeuLrGzRYuKD7Zsz/cJnRMg0P9p9V9+QHZBpV55p",
+      "./impl/js/chain.mjs": "sha384-PiUOexDc/xey/5uBUwF35M8qpjf8fsihJ2293fap9PNSZ8hEfpmQHE5nTA1pQSb8",
+      "./impl/js/coins.mjs": "sha384-ZNaFJwJblrb6OJumfRHXLt7QS1Aukggd9roUg4qnXa1qPxwGLOPw5iNHxtTWDXed",
+      "./impl/js/data/wordlist-english.mjs": "sha384-+h7qk2ofHrc10lZB85xLmxxibdpQWLwsU/oft/+zsnIJwiw8H7v07Dzfy9F04uhd",
+      "./impl/js/ecdsa.mjs": "sha384-x3yOQbRpLvd+uIDvvjhQ+NHAb3fTRWiuacKzVB/ALMdKP7E8KxVPexu7MlfC0MNu",
+      "./impl/js/ecies.mjs": "sha384-hH/TriAu2l3CnZU9jvkCPhQi7Tb6/aTlrYdJOsljkEBQllG4AouCv5VJ0qKAIZZg",
+      "./impl/js/rfc6979.mjs": "sha384-qTg8f6MdGU0mpRVcrVvuFJWxoF/K1ezCDKgxcd5NQqzY+7iFxRmEROqHMJBiDGll",
+      "./impl/js/script.mjs": "sha384-KngPb5v58G0cRLn90pq2Lvx/KofUTIAJ8PVz9yXoLdQBYQ2fdb0eURxcovDnbDKu",
+      "./impl/js/secp256k1.mjs": "sha384-L37ZdcMSrYsMHCdWBT7pu+KzR1Z67ywWvSdPPcWRB4D3akVbH8f+EU+oAha/T46S",
+      "./impl/js/signer.mjs": "sha384-18tO691DDCX8JAyDSNV1h8CsrKtruS9/SBpu79hpMIItLGKepShrLSDLAq8yRcmR",
+      "./impl/js/transaction.mjs": "sha384-7AitUFjvfbaiN3fdHseeTX7nq5KUGJJsKfm6o0gGqjm783iiK89CJKyTczurT3s/",
+      "./src/airgap.js": "sha384-rjX8vMqkjaQiirVTvZvaF0tRWEIAIAVXmQPi7/3XlVpAicTRO0ViTaUSyEyPbAPd",
+      "./src/album.js": "sha384-wb8BZqlKk6u5r+6aDx/wqmtof2+ywU7J8QRTqrye9vXhdyNs95EsTnz9cg9EyOSb",
+      "./src/app.js": "sha384-3bsPIFuTIPeEgt6JVBCu0EDbVVE9rXMW3Alvjupv2kReByXlFslbZnaN3Hheo2EG",
+      "./src/bmc.js": "sha384-CbLkBbchKsTujiuqwFcUt3lxFrU5WSbMhftFOzWPEfGVQ/X4xrVT0Bt2lWzVGmrl",
+      "./src/bmf.js": "sha384-dYWykwlVSpNv53oyF9Au8P3skweMlAB0mkvDYrLediH7M1M4FKH6gCjSb3peTVDP",
+      "./src/broadcast.js": "sha384-3RlR74JDaz1lD151SYF7TShzL++P6ZEvf3hSl7VBlrELyRSxy7ngjJoUDOd+9JSK",
+      "./src/bytes.js": "sha384-h8pavOWFFcvk7EyHINBBVBO6EPqaKfqHRvQB5KsY7yMcXxNU64lxPgy6wtuLy0IZ",
+      "./src/collectionBuilder.js": "sha384-mfS0ZXyoOe2suAHlMFvaNH4OdBy0gREyXyZJ8k6alSHJyJ0KBjhorWeW6SBzaO0R",
+      "./src/compress.js": "sha384-YiRqNFiuSYnbv+gkL1pfDKoR7bAeIzF/eO5GrPlEL+MY+HdnRiOBcneNxsi8PWx3",
+      "./src/configBackup.js": "sha384-zqIH2sJCNbY6OnVIPAdKgazTspCZMvMGMoanUy3VUQR7WfCdXbFVQDomBqC+GkWH",
+      "./src/contentCrypto.js": "sha384-Cq8Xlv/wTXhzfF0QvOIiCc12AgwLW8un1sxuxKXNkSWa6hXRVPONdC9grMtpE+IR",
+      "./src/cosign.js": "sha384-nJqwcgOpiSbDQxAW+4vNdALv+cJimZUrm4sofyNp9NVxZWPKceSkBl5CvAT2BxnV",
+      "./src/covenant.js": "sha384-GKsUquvotzHfKysP6emoyiCwKxeITSvXDR6AAeZyY53Ukebo3HAPoIOWgFGOojxL",
+      "./src/discussion.js": "sha384-VyRFMslTQQvLXQ/MTpEv5VjvVILk9o/DfGrWewATm6JzohhgIEm1OxL9FzhUGj9M",
+      "./src/editionBuilder.js": "sha384-jvv1PsXzVExPATHoKXZV/c/GR+1wEV2zxvaw7K/6uS1wCCQ6ueiYD0WfQfEhulN/",
+      "./src/flacMeta.js": "sha384-eZC48hVfeXBt8jI39Kcgl5b5W50bzD0y2FDiMLd12x02HG8yQ2KFeIQhw+XD6dsO",
+      "./src/id3.js": "sha384-M2ACICavnBLqUHzi5dqiyg2P7IHwAz3vEaz3RIbMCTyYzw06HJah8LLqTXG0b5yG",
+      "./src/keystore.js": "sha384-3pQ3Lmvs54EclCyAqffJ7fXYSrsOWxus/aQYihRrDeIx9xHwvg4DT4O55or7h+Ne",
+      "./src/lyrics.js": "sha384-MNBHmyqC8yGWS+1BGT5ZmZe9f3Zfzqjwy0kiApCz/VM0fYzuJJ88MDj6Mj1kPmei",
+      "./src/markerBackup.js": "sha384-HZc2gfVkh+a2xzkTklcXIKVavU8dDKpv7q4jlSX7Pl5u69Fz/u0dwEvsrOfjL4Ql",
+      "./src/messageBuilder.js": "sha384-okxj6R42GN7IRd3hfHVMGNr9UAWZlDcm6TprzJleGirGANOcaGcHw1GXJCLtqr+9",
+      "./src/messageCodec.js": "sha384-DZN7ZiMJDa0pdZHud3mlmCw6aoJpHEYailtQOzE1W6Ko2u1i9L5MrXB6uYKnGPe9",
+      "./src/mockup.js": "sha384-dsLJ/GAmuQvcphJW/YHeumPOlFppyJ+PEbjoitJRlpqec5OO1KTW1mJrEbqUX+Wt",
+      "./src/mockupIngest.js": "sha384-MZ5DeBLRJ6z9Hp4/IvwrZ5JzdIXCyz/o4VwCT6DMkVTliF4MPK1PZDcfafFdv9i/",
+      "./src/payment.js": "sha384-N6U+0723MDi8W34SdJ/LLYdnBJXPh8Diha/XidvnhDyP9MsPY076cIUmvEDsGtgI",
+      "./src/pharlapStore.js": "sha384-sb4Uksu0mnULZDoB1xfB+e4wWh4cJoVxFK5po4Nxdosseh+89swYisIwsUjhxq1q",
+      "./src/preview.js": "sha384-1hV+IfpwuzoE6n5sHQkopPpfwycRQUSvTKeoHz0FDr2oMdmEAAiCeD41JpTYR44W",
+      "./src/profile.js": "sha384-xhqM8/8ByE2UCyobuVTyd3sVvt/8gLZMH1qaO0Fd/wTVIXEh5V77FdR5PpuDxEzF",
+      "./src/pushDrop.js": "sha384-kZR3A4buQ4Toj5hnTE6XHsGii4w6hg86LkraeWAR9nm914jknPfDUuuosVPFqbHz",
+      "./src/pushtx.js": "sha384-3bujDFsQET5c15+2geVNBxi24ubV5QePvFwpY69bhPEP0Lre3qajEaerFLn+FyFI",
+      "./src/qr.js": "sha384-aVaM7cfnB1jxrMVqc0RP7OWqHLDXryUruvU7BsunErpmGguFxNV7t9wsCWD9giUh",
+      "./src/qrcodegen.js": "sha384-qqsKJkpdibWWpkvEIETkFv3PxpR0j2DJQA+INAs60eNf8pDk1BlNIs0Hr3wasCVv",
+      "./src/refManifest.js": "sha384-+HLPlE6syX0hgTEyUKrDoDtitXGdDWufKnlyZpDHgYFH+Ni7a85LEK2OA3J6zxBr",
+      "./src/sceneTimeline.js": "sha384-HMZXj2zAKEmg6U9eNgPDvAhVwiVxakqmbWz5fCevwSnuSGh5M/y8MpDopjjutXbc",
+      "./src/sellerNote.js": "sha384-jyMsKN52dufp2YWqT/aRiozTVfTB6rKmHyZPQinocQW46aQzl/axWkg7FiUXAoxm",
+      "./src/thumbs.js": "sha384-bePWxmVzQE+4IW1kPrAuIbIwO3y3UiX5RkcyVANOQaOav5uiVfLCHmd7yKAN+uLp",
+      "./src/tokenCodec.js": "sha384-kdCSP4LHRuJaM15gq1YGQ+zA5IsDelWRc4dqprALz8Akwnt9f6wu6vKt/Ecy3/34",
+      "./src/tokenProtocol.js": "sha384-vLW6CtFLfezzp9tBWG0AIu+cQxKIdAhkij/huUwJGZkEwoXuNPU+uA9IzeBWJ9vF",
+      "./src/transfer.js": "sha384-nUQogKyaKn38yGVqT3SRsmlRxJCEz2e3P/VrdDuPuK6VI+8HnEBonifcRFQH+IBx",
+      "./src/verify.js": "sha384-twO9Y415/Firo5l/1vsGn1wuJ7T4I0De1TN3lBraCbWPWQpqr1MPz+AVN0uq53Pb",
+      "./src/walletProvider.js": "sha384-1dUE48fmsWBviLMFN5x/qxItHovoQ7tPgZsX1m5gsHrKL1S1QgGNj3tasrj6ClYL",
+      "./vendor/noble-hashes/_md.js": "sha384-+inj+kU2SrziXaCzySRcSf7kOiLEfScN7pI3vq97++FGKDRSw3MJ0t0l37dQWmKc",
+      "./vendor/noble-hashes/_u64.js": "sha384-SPLtaj6mblQ3NtLCy4eidRByUQWvhD8+J1MpyW8ejRRfwyGrzdElsKxcrcBmGjZY",
+      "./vendor/noble-hashes/hmac.js": "sha384-T+vGWnGryWubEFH8lQdk8LN00eOX+mpsmHwdXuC6L6KIIn46POY/2hauzVrdjZNH",
+      "./vendor/noble-hashes/legacy.js": "sha384-0jB24bW9lAVeQ6N+1J5hDmWtio1Pn5vx3+RMWQ8C6TUHpnILHsRDC0RdvP99O52Q",
+      "./vendor/noble-hashes/pbkdf2.js": "sha384-WO4WbsYHGdJIcIXS/DJ+onOMytASrP5MvrN1GxVSH1X6agi0co4mv/3M0ddU3KSR",
+      "./vendor/noble-hashes/sha2.js": "sha384-YXgpTrphhgj/WMtfF9PcPZQOE57vqATkv4wTjdFflOBTMR5ro2T6S/MkCc9vVH5q",
+      "./vendor/noble-hashes/utils.js": "sha384-YFMR8BWPimRHARZs0bAtgjKOWPQL0ND/lZk6QwHVzhzx71FWSqzQb1ToPgVtqapB"
+    }
+  }
+  </script>
   <link rel="modulepreload" href="./impl/js/address.mjs" integrity="sha384-E9squlJAedNrCyhRBJSa5+dOSS2uglbG3HpDW+R/HBm9uOSG9B2Cld6NvqGON5P5">
   <link rel="modulepreload" href="./impl/js/bip32.mjs" integrity="sha384-Yw2aMpKhWWGmQV2QNm2YE9F7H3XfOfe4bnOG8fox+XUnYnEjcgnWghNTZAJmLTPB">
   <link rel="modulepreload" href="./impl/js/bip39.mjs" integrity="sha384-wDrGvaUX1kWPmJ2T6D7XnOTOr3wFjiwEwH/3HPa2iN0SdpA3fYhMpkXjoCmW6Zir">

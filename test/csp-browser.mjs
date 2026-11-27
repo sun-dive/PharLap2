@@ -1,9 +1,9 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
- * The wallet page's Content-Security-Policy, in a real browser. The policy is read from .htaccess, the file that
- * sends it, and served on index.html as the host does. Checks that the page runs under it with nothing refused,
- * that the QR reader it loads on demand still loads, and that a publisher's SVG or HTML opened from the page as a
- * blob: page cannot run script. A control copy served WITHOUT the policy shows the probe can see script run.
+ * The wallet page's Content-Security-Policy, in a real browser. The policy is the meta tag in index.html; .htaccess
+ * must not send one too. Checks that the page runs under it with nothing refused, that the QR reader it loads on
+ * demand still loads, and that a publisher's SVG or HTML opened from the page as a blob: page cannot run script. A
+ * control copy served WITHOUT the policy (the meta tag taken out) shows the probe can see script run.
  *
  * Headless Chromium, a fresh profile, every outside host unresolvable; both removed when done.
  *
@@ -22,19 +22,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms))
 let pass = 0, fail = 0
 const ok = (c, what) => { if (c) pass++; else { fail++; console.log('  ✗ ' + what) } }
 
-const policy = /<Files "index\.html">\s*Header set Content-Security-Policy "([^"]+)"/.exec(readFileSync(join(ROOT, '.htaccess'), 'utf8'))?.[1]
-if (policy == null) { console.log('⚠ no Content-Security-Policy for index.html in .htaccess'); process.exit(1) }
+const META = /<meta http-equiv="Content-Security-Policy" content="([^"]+)">\n?/
+const policy = META.exec(readFileSync(join(ROOT, 'index.html'), 'utf8'))?.[1]
+if (policy == null) { console.log('⚠ no Content-Security-Policy meta tag in index.html'); process.exit(1) }
+ok(!/Content-Security-Policy/i.test(readFileSync(join(ROOT, '.htaccess'), 'utf8').replace(/^\s*#.*$/gm, '')),
+   '.htaccess sends no policy of its own (one without the import map\'s hash would refuse it)')
 
-// ── the page: `/` as the host serves it (policy on index.html); `/nocsp/` the same files without it ──
+// ── the page: `/` as the host serves it; `/nocsp/` the same files, index.html without its policy tag ──
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' }
 const server = createServer(async (req, res) => {
   let path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '')
   const control = path.startsWith('/nocsp/'); if (control) path = path.slice('/nocsp'.length)
   if (path.endsWith('/')) path += 'index.html'
   try {
-    const body = await readFile(join(ROOT, path))
+    let body = await readFile(join(ROOT, path))
+    if (path === '/index.html' && control) body = Buffer.from(body.toString('utf8').replace(META, ''))
     const head = { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' }
-    if (path === '/index.html' && !control) head['content-security-policy'] = policy
     res.writeHead(200, head); res.end(body)
   } catch { res.writeHead(404); res.end() }
 })
@@ -109,7 +112,7 @@ async function openedFrom(base) {
   return out
 }
 try {
-  console.log(`policy from .htaccess: ${policy}`)
+  console.log(`policy from index.html: ${policy}`)
   console.log('1 · the wallet page runs under the policy, with nothing refused')
   await go(BASE + '/')
   ok(await walletShown(), 'the wallet opens')
