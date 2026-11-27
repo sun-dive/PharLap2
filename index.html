@@ -481,6 +481,11 @@
     <h1>SMART NFTs <small>powered by <span title="Peer-to-peer · Hashing · Algorithm · Replication · Ledger · Authentication · Protocol">PHAR LAP</span></small></h1>
 
     <div id="status" class="status">Loading…</div>
+    <div id="startFailed" class="status error" hidden>
+      <strong>Smart NFTs couldn't start</strong><br>
+      Some of this page's files couldn't be loaded, or didn't match the version it was published with, so your browser didn't run them. Nothing was done with your wallet.<br>
+      Please reload the page. This can happen for a few seconds while the site is being updated. If it keeps happening, don't use the wallet on this page.
+    </div>
     <div id="restoreChoice" class="status info" style="display:none">
       Restore your tokens:
       <button id="btnRestoreFromFile" class="secondary">Choose backup file</button>
@@ -1319,5 +1324,6 @@
   <link rel="modulepreload" href="./vendor/noble-hashes/sha2.js" integrity="sha384-YXgpTrphhgj/WMtfF9PcPZQOE57vqATkv4wTjdFflOBTMR5ro2T6S/MkCc9vVH5q">
   <link rel="modulepreload" href="./vendor/noble-hashes/utils.js" integrity="sha384-YFMR8BWPimRHARZs0bAtgjKOWPQL0ND/lZk6QwHVzhzx71FWSqzQb1ToPgVtqapB">
   <script type="module" src="./src/app.js" integrity="sha384-3bsPIFuTIPeEgt6JVBCu0EDbVVE9rXMW3Alvjupv2kReByXlFslbZnaN3Hheo2EG"></script>
+  <script src="./src/startcheck.js" integrity="sha384-6JoX8USB9TaeIj9bC+MU35L+p2R8+ovUHt1VIaQ4pZMRY3PaA/alyFU2y8c/uKYj"></script>
 </body>
 </html>

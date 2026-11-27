@@ -65,7 +65,12 @@ const copy = () => {
   ok(!check(d), 'a policy that does not name the import map\'s hash fails')
   rmSync(d, { recursive: true, force: true })
 }
-
+{
+  const d = copy()
+  appendFileSync(join(d, 'src', 'startcheck.js'), ' ')
+  ok(!check(d), 'a changed start check fails')
+  rmSync(d, { recursive: true, force: true })
+}
 
 console.log('── 3 · script is loaded only by import, or by a script element with a hash ──')
 const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap((e) =>

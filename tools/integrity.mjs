@@ -13,7 +13,8 @@
  *
  * The modules are found by following the imports from src/app.js with esbuild's parser. esbuild only reads here;
  * nothing it writes is shipped. jsqr.min.js is added by the app at run time, so its hash lives in app.js
- * (JSQR_INTEGRITY), which is itself hashed.
+ * (JSQR_INTEGRITY), which is itself hashed. src/startcheck.js, which tells the visitor when the app is refused, is a
+ * classic script with its own hash on its tag.
  */
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -27,6 +28,7 @@ const ROOT = resolve(process.env.INTEGRITY_ROOT ?? join(dirname(fileURLToPath(im
 const ENTRY = 'src/app.js'
 const PAGE = 'index.html'
 const JSQR = 'jsqr.min.js'
+const STARTCHECK = 'src/startcheck.js'
 const mode = process.argv[2] ?? 'write'
 if (!['write', '--staged', '--check'].includes(mode)) { console.error(`unknown option ${mode}`); process.exit(2) }
 const staged = mode === '--staged'
@@ -58,7 +60,7 @@ async function modules(appJs) {
 }
 
 const JSQR_LINE = /const JSQR_INTEGRITY = '[^']*'/
-const BLOCK = /^([ \t]*)<script type="importmap">[\s\S]*?<script type="module" src="\.\/src\/app\.js"[^\n]*<\/script>/m
+const BLOCK = /^([ \t]*)<script type="importmap">[\s\S]*?<script src="\.\/src\/startcheck\.js"[^\n]*<\/script>/m
 const META = /<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'sha256-[^']*'">/
 
 /** app.js and index.html as they should read, given the files as they are. */
@@ -67,7 +69,7 @@ async function expected(appJs, page) {
   const app = appJs.replace(JSQR_LINE, `const JSQR_INTEGRITY = '${sri(read(JSQR))}'`)
   const mods = await modules(app)
   const m = BLOCK.exec(page)
-  if (!m) throw new Error(`${PAGE} has no module block (the import map through the app's module script)`)
+  if (!m) throw new Error(`${PAGE} has no module block (the import map through the start check's script)`)
   if (!META.test(page)) throw new Error(`${PAGE} has no Content-Security-Policy meta tag naming the import map's hash`)
   const ind = m[1]
   const hash = (p) => sri(p === ENTRY ? app : read(p))
@@ -76,6 +78,7 @@ async function expected(appJs, page) {
   const lines = [`${ind}<script type="importmap">${map}</script>`]
   for (const p of mods) if (p !== ENTRY) lines.push(`${ind}<link rel="modulepreload" href="./${p}" integrity="${hash(p)}">`)
   lines.push(`${ind}<script type="module" src="./${ENTRY}" integrity="${sri(app)}"></script>`)
+  lines.push(`${ind}<script src="./${STARTCHECK}" integrity="${sri(read(STARTCHECK))}"></script>`)
   const policy = `<meta http-equiv="Content-Security-Policy" content="script-src 'self' 'sha256-${createHash('sha256').update(map).digest('base64')}'">`
   return { app, page: page.replace(BLOCK, () => lines.join('\n')).replace(META, () => policy), count: mods.length }
 }

@@ -1,8 +1,9 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
  * The page's file hashes, in real browsers. index.html carries an import map naming every module with its SHA-384.
- * This checks that the wallet runs from exactly those files; that a module changed by one byte stops the app, under
- * each cache header a server or anyone between could send (none, no-cache, no-store); and that the QR scanner the app adds later loads under the hash app.js gives it and is refused when
+ * This checks that the wallet runs from exactly those files; that a module changed by one byte stops the app and
+ * shows the visitor the message, under each cache header a server or anyone between could send (none, no-cache,
+ * no-store); and that the QR scanner the app adds later loads under the hash app.js gives it and is refused when
  * changed. Chromium is driven through DevTools; Firefox, which ran a changed module when only preload hashes guarded
  * it, loads the same pages and reports what it shows.
  *
@@ -36,7 +37,7 @@ const CACHES = ['none', 'no-cache', 'no-store']
 //    cache header sent with every file, and for Firefox (f) a reporting script added to the page ──
 const TAMPERED = new Set(['/src/keystore.js', '/jsqr.min.js'])
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' }
-const REPORT = "setTimeout(() => fetch('/__result?' + encodeURIComponent(location.pathname + '|' + (document.getElementById('appVersion')?.textContent ?? ''))), 6000)\n"
+const REPORT = "setTimeout(() => fetch('/__result?' + encodeURIComponent(location.pathname + '|' + (document.getElementById('appVersion')?.textContent ?? '') + '|' + !document.getElementById('startFailed').hidden)), 6000)\n"
 const requested = new Set(); const reports = []
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x')
@@ -90,18 +91,18 @@ const event = method => new Promise(res => waiters.push({ method, res }))
 await send('Page.enable'); await send('Runtime.enable'); await send('Log.enable')
 async function go(url) { const loaded = event('Page.loadEventFired'); await send('Page.navigate', { url }); await loaded }
 async function walletShown(tries = 100) { for (let i = 0; i < tries; i++) { await sleep(100); if ((await ev("document.getElementById('address')?.textContent ?? ''")) !== '') return true } return false }
-const shown = () => ev("({ version: document.getElementById('appVersion')?.textContent ?? '' })")
+const shown = () => ev("({ version: document.getElementById('appVersion')?.textContent ?? '', message: !document.getElementById('startFailed').hidden, loading: !document.getElementById('status').hidden })")
 const loadScanner = (base, hash) => ev(`new Promise(res => { const s = document.createElement('script'); s.src = ${JSON.stringify(base + 'jsqr.min.js')}; s.integrity = ${JSON.stringify(hash)}; s.onload = () => res(typeof window.jsQRlib); s.onerror = () => res('refused'); document.head.append(s) })`)
 
 try {
-  ok(listed.size > 50 && listed.has('src/app.js') && jsqrHash && VERSION,
-    `index.html's import map names ${listed.size} modules with the app's entry, app.js gives the QR scanner's hash and the version`)
+  ok(listed.size > 50 && listed.has('src/app.js') && classic.includes('src/startcheck.js') && jsqrHash && VERSION,
+    `index.html's import map names ${listed.size} modules with the app's entry, the start check is hashed, app.js gives the QR scanner's hash and the version`)
 
   console.log('1 · Chromium: the wallet runs from exactly the files index.html names')
   await go(at('g', 'none', 'c'))
   ok(await walletShown(), 'the wallet opens')
   const s1 = await shown()
-  ok(s1.version === `Smart NFTs · v${VERSION}`, `the version reads v${VERSION} (${JSON.stringify(s1)})`)
+  ok(s1.version === `Smart NFTs · v${VERSION}` && !s1.message, `the version reads v${VERSION}, and no message (${JSON.stringify(s1)})`)
   const scripts = [...requested].filter(p => /\.m?js$/.test(p))
   const unlisted = scripts.filter(p => !listed.has(p) && !classic.includes(p))
   ok(unlisted.length === 0, `every script the browser asked for is named (not named: ${unlisted.join(', ')})`)
@@ -111,13 +112,13 @@ try {
   const genuine = await loadScanner(at('g', 'none', 'c'), jsqrHash)
   ok(genuine === 'function' || genuine === 'object', `the QR scanner loads under the hash app.js gives it (${genuine})`)
 
-  console.log('2 · Chromium: one module changed by one byte, under each cache header: refused')
+  console.log('2 · Chromium: one module changed by one byte, under each cache header: refused, and the visitor is told')
   for (const cache of CACHES) {
     consoleLines.length = 0
     await go(at('t', cache, 'c'))
     ok(!(await walletShown(40)), `${cache}: the wallet does not open`)
     const s = await shown()
-    ok(s.version === '', `${cache}: no app code ran (${JSON.stringify(s)})`)
+    ok(s.version === '' && s.message && !s.loading, `${cache}: no app code ran; the message shows instead of "Loading…" (${JSON.stringify(s)})`)
   }
 
   console.log('3 · Chromium: the QR scanner changed by one byte: refused')
@@ -133,9 +134,9 @@ try {
       const ff = spawn(firefox, ['--headless', '--no-remote', '--profile', dir, at(kind, cache, 'f')], { stdio: 'ignore' })
       for (let i = 0; i < 200 && reports.length === before; i++) await sleep(100)
       ff.kill(); await sleep(500); await rm(dir, { recursive: true, force: true })
-      const [, version = ''] = (reports[before] ?? 'no report|').split('|')
-      if (kind === 'g') ok(version === `Smart NFTs · v${VERSION}`, `genuine: the app runs (${reports[before] ?? 'no report'})`)
-      else ok(version === '', `${cache}: refused, no app code ran (${reports[before] ?? 'no report'})`)
+      const [, version = '', message = ''] = (reports[before] ?? 'no report||').split('|')
+      if (kind === 'g') ok(version === `Smart NFTs · v${VERSION}` && message === 'false', `genuine: the app runs, no message (${reports[before] ?? 'no report'})`)
+      else ok(version === '' && message === 'true', `${cache}: refused, and the message shows (${reports[before] ?? 'no report'})`)
     }
   }
 } catch (e) { fail++; console.log('  ✗ stopped: ' + e.message) }
