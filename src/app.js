@@ -40,6 +40,7 @@ import { unwrapContentKey, decryptContent } from './contentCrypto.js'
 import { loadSecret, saveSecret, forgetSecret, keepStorage, UNREADABLE } from './keystore.js'
 import { decompress } from './compress.js'
 
+const APP_VERSION = '2.01'
 const APP_BASE = location.pathname.replace(/[^/]*$/, '')
 
 const WIF_KEY = 'p2:wallet:wif'
@@ -493,13 +494,14 @@ function onSaveAff() {
   setStatus('Saved — your shared sales pages now carry your Buy-BSV referral.', 'ok')
 }
 
+const JSQR_INTEGRITY = 'sha384-fT1oCiybPrQswyxqlqrxYEuhDHnrx/w0dOLPPVQ/44Bl2hLWX9TzF048m7zACfxd'
 let jsqrFn = null
 async function loadJsqr() {
   if (jsqrFn != null) return jsqrFn
   try {
     await new Promise((resolve, reject) => {
       const s = document.createElement('script')
-      s.src = './jsqr.min.js'; s.async = true
+      s.src = './jsqr.min.js'; s.integrity = JSQR_INTEGRITY; s.async = true
       s.onload = () => resolve(); s.onerror = () => reject(new Error('load failed'))
       document.head.append(s)
     })
@@ -4549,7 +4551,7 @@ function initTabs() {
 
 async function init() {
   store = new PharLapStore()
-  const ver = $('appVersion'); if (ver != null) ver.textContent = `Smart NFTs · v${__APP_VERSION__} · ${__BUILD_ID__} · ${__BUILD_DATE__}`
+  const ver = $('appVersion'); if (ver != null) ver.textContent = `Smart NFTs · v${APP_VERSION}`
   await importPharLap1Watch()
   const watch = localStorage.getItem(WATCH_KEY)
   let loaded = null

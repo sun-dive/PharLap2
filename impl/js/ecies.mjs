@@ -2,9 +2,9 @@
 import { mulBlinded, serP } from './secp256k1.mjs'
 import { decodePoint } from './ecdsa.mjs'
 import { concat, fromUtf8, timingSafeEquals } from './bytes.mjs'
-import { sha512 } from '@noble/hashes/sha2.js'
-import { sha256 } from '@noble/hashes/sha2.js'
-import { hmac } from '@noble/hashes/hmac.js'
+import { sha512 } from '../../vendor/noble-hashes/sha2.js'
+import { sha256 } from '../../vendor/noble-hashes/sha2.js'
+import { hmac } from '../../vendor/noble-hashes/hmac.js'
 
 const MAGIC = fromUtf8('BIE1')
 const MAC_BYTES = 32

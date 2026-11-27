@@ -1,6 +1,6 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
-import { hmac } from '@noble/hashes/hmac.js'
-import { sha256 } from '@noble/hashes/sha2.js'
+import { hmac } from '../../vendor/noble-hashes/hmac.js'
+import { sha256 } from '../../vendor/noble-hashes/sha2.js'
 import { concat, toBigBE } from './bytes.mjs'
 
 const hmac256 = (key, msg) => hmac(sha256, key, msg)

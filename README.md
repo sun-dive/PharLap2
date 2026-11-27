@@ -120,6 +120,18 @@ assert a patent over the same code. Apache §3 grants a patent licence explicitl
 anyone who brings a patent action over the work. ⇒ For a wallet core meant to outlive its author, that
 is the difference between *"you may copy this"* and *"you may copy this and not be sued for it."*
 
+## The page
+
+The page runs this repository's files as they are, with no build. `index.html` names each file it loads with its
+SHA-384, and the browser refuses a file that does not match, so the hash of `index.html` stands for the whole app.
+
+```
+git config core.hooksPath tools/hooks    once per clone: each commit then refreshes the hashes itself
+node tools/integrity.mjs                 refresh them by hand, to try an edit locally before committing
+```
+
+The code that ships carries no notes. Each file's notes are in `notes/<its path>.md`, with its original signatures.
+
 ## What it is built from
 
 **Nothing.** Zero runtime dependencies, and no third-party source code — every line under `impl/` and

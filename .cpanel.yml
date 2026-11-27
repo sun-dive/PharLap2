@@ -12,20 +12,26 @@
 # files (bundle.js) are left in place. The data folders (og/, links/) are kept: existing short links and previews
 # keep working.
 #
-# testbundle2.js is committed for this copy step. It is the build output of src/, refreshed on each publish.
+# The app runs as the files in this repository, with no build: src/, impl/js/ and vendor/ are copied as they are.
+# index.html names each one with its hash, so it goes last: until then the old page, and the old files it names,
+# stay whole. testbundle2.js, which the old page loads, is left in place.
 deployment:
   tasks:
     - export DEPLOYPATH="$HOME/smartnfts.com/"
     - test -d "$DEPLOYPATH" || exit 1
-    - /bin/cp index.html "$DEPLOYPATH"
-    - /bin/cp testbundle2.js "$DEPLOYPATH"
+    - /bin/cp .htaccess "$DEPLOYPATH"
+    - /bin/mkdir -p "$DEPLOYPATH/src" "$DEPLOYPATH/impl/js/data" "$DEPLOYPATH/vendor/noble-hashes"
+    - /bin/cp src/*.js "$DEPLOYPATH/src/"
+    - /bin/cp impl/js/*.mjs "$DEPLOYPATH/impl/js/"
+    - /bin/cp impl/js/data/*.mjs "$DEPLOYPATH/impl/js/data/"
+    - /bin/cp vendor/noble-hashes/* "$DEPLOYPATH/vendor/noble-hashes/"
     - /bin/cp jsqr.min.js "$DEPLOYPATH"
     - /bin/cp -R brand "$DEPLOYPATH"
     - /bin/cp share.php "$DEPLOYPATH"
     - /bin/cp register.php "$DEPLOYPATH"
     - /bin/cp shorten.php "$DEPLOYPATH"
-    - /bin/cp .htaccess "$DEPLOYPATH"
     - /bin/cp LICENSE "$DEPLOYPATH"
     - /bin/cp NOTICE "$DEPLOYPATH"
     - /bin/mkdir -p "$DEPLOYPATH/og"
     - /bin/mkdir -p "$DEPLOYPATH/links"
+    - /bin/cp index.html "$DEPLOYPATH"

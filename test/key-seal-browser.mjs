@@ -1,13 +1,13 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
 /**
- * The sealed key, in a real browser: every path that loads, moves, replaces or removes it (src/keystore.ts and
- * the wallet section of src/app.ts), run against the built page, testbundle2.js.
+ * The sealed key, in a real browser: every path that loads, moves, replaces or removes it (src/keystore.js and
+ * the wallet section of src/app.js), run against the page as it is served.
  *
  * It serves this folder on a free local port, starts headless Chromium with a fresh profile and every outside host
  * unresolvable (nothing reaches a chain API), and removes both when done. The keys are throwaway ones the page
  * makes itself.
  *
- *   node build.mjs && node test/key-seal-browser.mjs        (CHROMIUM=/path/to/chromium to choose the browser)
+ *   node test/key-seal-browser.mjs        (CHROMIUM=/path/to/chromium to choose the browser)
  */
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'

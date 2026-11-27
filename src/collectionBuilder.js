@@ -2,7 +2,7 @@
 import { Tx } from '../impl/js/transaction.mjs'
 import { applyFee } from '../impl/js/coins.mjs'
 import { txidToWire } from '../impl/js/signer.mjs'
-import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js'
+import { sha256 as nobleSha256 } from '../vendor/noble-hashes/sha2.js'
 import { toHex } from '../impl/js/bytes.mjs'
 
 export const UNLOCK_P2PKH = 108

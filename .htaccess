@@ -9,13 +9,16 @@ RewriteRule ^s/([0-9A-Za-z]{1,16})/?$ share.php?s=$1 [L,QSA]
 # title/description JSON, so direct access is harmless — just no browsable index.
 Options -Indexes
 
+# Module files are JavaScript; a browser refuses to run a module served as any other type.
+AddType text/javascript .mjs
+
 # ── Cache policy: never let a returning visitor run a STALE app ────────────────────────────────────
-# index.html + bundle.js have fixed names, so without this a browser can keep a week-old bundle from disk
-# cache and never recheck — an outdated client against newer on-chain formats can break features (e.g.
-# "View content" on a fresh acquisition). Force the SPA shell + bundle to revalidate every load; ETag/304
-# makes that near-free when nothing changed, and guarantees a fresh copy the moment a new build ships.
+# index.html and the app's script files have fixed names, so without this a browser can keep week-old copies
+# from disk cache and never recheck — an outdated client against newer on-chain formats can break features
+# (e.g. "View content" on a fresh acquisition), and a cached file whose hash no longer matches index.html is
+# refused. Force them to revalidate every load; ETag/304 makes that near-free when nothing changed.
 <IfModule mod_headers.c>
-  <FilesMatch "\.(html|js)$">
+  <FilesMatch "\.(html|js|mjs)$">
     Header set Cache-Control "no-cache, must-revalidate"
   </FilesMatch>
   # Content-addressed / rarely-changing assets can cache hard (covers/brand art are effectively immutable).

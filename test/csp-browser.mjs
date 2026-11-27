@@ -7,7 +7,7 @@
  *
  * Headless Chromium, a fresh profile, every outside host unresolvable; both removed when done.
  *
- *   node build.mjs && node test/csp-browser.mjs        (CHROMIUM=/path/to/chromium to choose the browser)
+ *   node test/csp-browser.mjs        (CHROMIUM=/path/to/chromium to choose the browser)
  */
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
@@ -26,7 +26,7 @@ const policy = /<Files "index\.html">\s*Header set Content-Security-Policy "([^"
 if (policy == null) { console.log('⚠ no Content-Security-Policy for index.html in .htaccess'); process.exit(1) }
 
 // ── the page: `/` as the host serves it (policy on index.html); `/nocsp/` the same files without it ──
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' }
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg' }
 const server = createServer(async (req, res) => {
   let path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '')
   const control = path.startsWith('/nocsp/'); if (control) path = path.slice('/nocsp'.length)

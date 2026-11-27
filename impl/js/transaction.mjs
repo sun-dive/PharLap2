@@ -1,5 +1,5 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
-import { sha256 } from '@noble/hashes/sha2.js'
+import { sha256 } from '../../vendor/noble-hashes/sha2.js'
 import { concat, fromHex, toHex, reversed, readU16LE, readU32LE, readU64LE, u16LE, u32LE, u64LE } from './bytes.mjs'
 
 const dsha256 = b => sha256(sha256(b))

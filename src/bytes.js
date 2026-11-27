@@ -4,7 +4,7 @@ import { hash160 } from '../impl/js/bip32.mjs'
 import { p2pkhAddress } from '../impl/js/address.mjs'
 import { decodePoint } from '../impl/js/ecdsa.mjs'
 import { serP } from '../impl/js/secp256k1.mjs'
-import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js'
+import { sha256 as nobleSha256 } from '../vendor/noble-hashes/sha2.js'
 
 export const hexBytes = (hex) => (hex.length === 0 ? [] : Array.from(fromHex(hex)))
 export const hexOf = (b) => u8ToHex(Uint8Array.from(b))

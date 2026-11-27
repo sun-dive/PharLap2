@@ -157,58 +157,41 @@ for (const f of walk(ROOT)) {
 }
 ok(strays.length === 0, `⛔ imports that are not on the allowlist: ${strays.join(', ')}`)
 
-// ══ ⛔ THE BUILD CONFIG ITSELF ═══════════════════════════════════════════════════════════════════════
+// ══ ⛔ WHAT SHIPS ════════════════════════════════════════════════════════════════════════════════════
 //
-// ⚠⚠ TWO THINGS ABOUT `build.mjs` THAT NO OTHER CHECK WOULD NOTICE, because they are about what is
-//   DISTRIBUTED rather than about whether the code runs.
-console.log('\n── ⛔ the build config ──')
+// The page runs the repository's files as they are, with no build. Three things about what is DISTRIBUTED that no
+// other check would notice.
+console.log('\n── ⛔ what ships ──')
 {
-  const cfg = readFileSync(join(ROOT, 'build.mjs'), 'utf8')
+  // ⛔ 1 · NOTHING MAY ASK A BROWSER FOR `bundle.js`. Phar Lap 1's script has that name, is still on the server,
+  //   and its deploy step is `cp bundle.js "$DEPLOYPATH"`. A page here that loaded it would run the other app.
+  const asks = walk(ROOT).concat(
+    (() => { try { return readdirSync(ROOT).filter(f => f.endsWith('.html')).map(f => join(ROOT, f)) } catch { return [] } })(),
+  ).filter(f => /\.(html|ts|mjs|js)$/.test(f))
+    .filter(f => /(src|href)=["'][^"']*\bbundle\.js/.test(readFileSync(f, 'utf8')))
+    .map(f => f.slice(ROOT.length + 1))
+  ok(asks.length === 0, `⛔ no page loads \`bundle.js\`: ${asks.join(', ')}`)
 
-  // ⛔ 1 · NO `global` DEFINE. The deployed build carries one, assumed necessary for the removed library.
-  //   Measured 10 Sept 2026: building that application with and without it gives a BYTE-IDENTICAL
-  //   bundle - nothing referenced bare `global` as an identifier at all.
-  //   ⇒ It matters that it stays out. A define replacing a Node global silently patches over a real Node
-  //     dependency creeping in, instead of letting the build fail and say so.
-  ok(!/['"]?global['"]?\s*:/.test(cfg.replace(/\/\*[\s\S]*?\*\//g, '')),
-     '⛔ the build does NOT define `global` — dead config that would mask a real Node dependency')
-
-  // ⛔⛔ 2 · THE BUNDLE MUST NOT BE CALLED `bundle.js`. Phar Lap 1 is LIVE, its script is `bundle.js`,
-  //   and its deploy step is `cp bundle.js "$DEPLOYPATH"`. Two projects emitting the same filename are
-  //   one wrong path away from this one replacing the live app's script. ⇒ A distinct name makes that
-  //   impossible rather than unlikely, which is the deployment form of keeping each page's script
-  //   isolated. The name is checked here so it cannot be tidied back.
-  ok(/outfile:\s*['"]testbundle2\.js['"]/.test(cfg),
-     '⛔★ the build emits testbundle2.js — NEVER bundle.js, which is the live app\'s script')
-  ok(!/outfile:\s*['"]bundle\.js['"]/.test(cfg), '…and does not emit the live name')
-  // ⚠ and nothing in the repository may ask a browser for the live app's script by name
-  {
-    const asks = walk(ROOT).concat(
-      (() => { try { return readdirSync(ROOT).filter(f => f.endsWith('.html')).map(f => join(ROOT, f)) } catch { return [] } })(),
-    ).filter(f => /\.(html|ts|mjs|js)$/.test(f))
-      .filter(f => /(src|href)=["'][^"']*\bbundle\.js/.test(readFileSync(f, 'utf8')))
-      .map(f => f.slice(ROOT.length + 1))
-    ok(asks.length === 0, `⛔ no page loads \`bundle.js\`: ${asks.join(', ')}`)
+  // ⛔ 2 · NO BARE IMPORT IN SHIPPED CODE. A browser cannot resolve `@noble/hashes/…`; every import the page runs is a
+  //   path to a file that is deployed.
+  const shipped = [...walk(join(ROOT, 'src')), ...walk(IMPL), ...walk(join(ROOT, 'vendor'))]
+  const bare = []
+  // comments taken out first: the vendored library's documentation shows example imports by package name
+  const code = (f) => readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+  for (const f of shipped) for (const m of code(f).matchAll(/(?:from|import)\s*['"]([^'"\n ]+)['"]/g)) {
+    if (!m[1].startsWith('.') && !m[1].startsWith('/')) bare.push(`${f.slice(ROOT.length + 1)} → ${m[1]}`)
   }
+  ok(shipped.length > 50 && bare.length === 0, `⛔ shipped code imports only files: ${bare.join(', ')}`)
 
-  // ⛔ 3 · THE MIT NOTICE IS A BANNER. `@noble/hashes` is MIT and its notice must travel with its code.
-  //   ⚠⚠ `legalComments` does NOT do this: it only preserves comments a source marks with `/*!`, and that
-  //     dependency marks none, so building with and without it is byte-identical. Relying on it would
-  //     have looked like compliance and been none. A banner is written in unconditionally.
-  ok(/banner\s*:\s*\{\s*js\s*:/.test(cfg), '⛔ the bundle carries a licence BANNER, not just legalComments')
-  ok(/Paul Miller/.test(cfg) && /MIT/.test(cfg),
-     '★ …and it names the MIT holder, which is what the licence actually requires')
-
-  // ★ and prove the banner really lands in a bundle, rather than trusting the setting
-  const NOTICE = (cfg.match(/const NOTICE = `([\s\S]*?)`/) ?? [])[1]
-  ok(NOTICE !== undefined && NOTICE.startsWith('/*!'), 'the banner is a legal comment esbuild will keep')
-  const probe = await build({
-    entryPoints: [join(IMPL, 'bip39.mjs')], bundle: true, write: false, banner: { js: NOTICE ?? '' },
-    platform: 'browser', format: 'esm', target: 'es2020', logLevel: 'silent',
-  })
-  const text = probe.outputFiles[0].text
-  ok(text.startsWith('/*!') && /Paul Miller/.test(text),
-     '★★ MEASURED: the notice is present in the built output, not merely configured')
+  // ⛔ 3 · THE VENDORED LIBRARY IS THE PUBLISHED ONE. vendor/noble-hashes holds @noble/hashes 2.4.0's own files,
+  //   unchanged, so each one's hash matches the published package, with its MIT licence beside them.
+  const V = join(ROOT, 'vendor', 'noble-hashes')
+  const N = join(ROOT, 'node_modules', '@noble', 'hashes')
+  const version = JSON.parse(readFileSync(join(N, 'package.json'), 'utf8')).version
+  ok(version === JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).dependencies['@noble/hashes'], `node_modules holds the pinned @noble/hashes (${version})`)
+  const files = readdirSync(V)
+  for (const f of files) ok(readFileSync(join(V, f)).equals(readFileSync(join(N, f))), `vendor/noble-hashes/${f} is byte-identical to @noble/hashes ${version}`)
+  ok(files.includes('LICENSE') && /Paul Miller/.test(readFileSync(join(V, 'LICENSE'), 'utf8')), '★ the MIT licence, naming its holder, ships beside the files')
 }
 
 // ── ⚠ the anti-vacuous guard ────────────────────────────────────────────────────────────────────────

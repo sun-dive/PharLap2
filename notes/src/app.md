@@ -8,25 +8,13 @@ Raw-key model: a WIF in localStorage; funding/broadcast/fetch via WoC (walletPro
 verification via verifyTokenLineage. Tokens are tracked locally (PharLapStore) since PushDrop
 outputs are not WoC-address-indexed.
 
-## __APP_VERSION__
+## APP_VERSION
 
-```ts
-declare const __APP_VERSION__: string
+```js
+const APP_VERSION = '2.01'
 ```
 
-Injected by build.mjs (esbuild define). Base version is manual; build id + date auto-update each build.
-
-## __BUILD_ID__
-
-```ts
-declare const __BUILD_ID__: string
-```
-
-## __BUILD_DATE__
-
-```ts
-declare const __BUILD_DATE__: string
-```
+Phar Lap's version, changed by hand for each release. Shown at the foot of the page as `Smart NFTs · v<version>`.
 
 ## APP_BASE
 
@@ -787,6 +775,16 @@ type QrDecode = (d: Uint8ClampedArray, w: number, h: number, o?: { inversionAtte
 Opens the camera in a modal and resolves with the first QR's text (or null if cancelled / no camera). Uses
 the native BarcodeDetector where available (Chromium/Android, zero cost); on browsers without it (iOS Safari,
 Firefox) it LAZY-LOADS a vendored jsQR (./jsqr.min.js) on first use, so the core bundle isn't bloated.
+
+## JSQR_INTEGRITY
+
+```js
+const JSQR_INTEGRITY = 'sha384-…'
+```
+
+The QR scanner's hash. The app adds jsqr.min.js to the page itself, so index.html does not name it; this hash,
+inside app.js, which index.html does name, makes the browser refuse a changed copy. Written by
+tools/integrity.mjs; never edited by hand.
 
 ## jsqrFn
 

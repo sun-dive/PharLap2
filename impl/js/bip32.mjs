@@ -1,8 +1,8 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
-import { sha256 } from '@noble/hashes/sha2.js'
-import { sha512 } from '@noble/hashes/sha2.js'
-import { ripemd160 } from '@noble/hashes/legacy.js'
-import { hmac } from '@noble/hashes/hmac.js'
+import { sha256 } from '../../vendor/noble-hashes/sha2.js'
+import { sha512 } from '../../vendor/noble-hashes/sha2.js'
+import { ripemd160 } from '../../vendor/noble-hashes/legacy.js'
+import { hmac } from '../../vendor/noble-hashes/hmac.js'
 import { G, N, add, mul, mulBlinded, serP, ser32, ser256 } from './secp256k1.mjs'
 import { concat, fromHex, fromUtf8, toBigBE } from './bytes.mjs'
 

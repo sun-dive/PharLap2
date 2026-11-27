@@ -1,6 +1,6 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
-import { sha256, sha512 } from '@noble/hashes/sha2.js'
-import { pbkdf2 } from '@noble/hashes/pbkdf2.js'
+import { sha256, sha512 } from '../../vendor/noble-hashes/sha2.js'
+import { pbkdf2 } from '../../vendor/noble-hashes/pbkdf2.js'
 import { WORDLIST_ENGLISH } from './data/wordlist-english.mjs'
 import { fromUtf8 } from './bytes.mjs'
 

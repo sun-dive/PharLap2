@@ -1,5 +1,5 @@
 // © 2026 sun-dive — Business Source License 1.1 (see LICENSE).
-import { sha256 } from '@noble/hashes/sha2.js'
+import { sha256 } from '../../vendor/noble-hashes/sha2.js'
 import { b58check, hash160 } from './bip32.mjs'
 import { concat, fromHex, equals } from './bytes.mjs'
 

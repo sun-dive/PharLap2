@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refreshes the file hashes in index.html from the files being committed, so a commit always names its own files.
+# Switched on once per clone with: git config core.hooksPath tools/hooks
+exec node tools/integrity.mjs --staged
