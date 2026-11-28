@@ -2,7 +2,7 @@
 import { reversed, fromHex, toHex } from './bytes.mjs'
 import { Tx } from './transaction.mjs'
 
-export const MIN_REQUEST_GAP_MS = 350
+export const MIN_REQUEST_GAP_MS = 300
 export const WOC_MAIN = 'https://api.whatsonchain.com/v1/bsv/main'
 export const BANANA_MAIN = 'https://bananablocks.com/api/v1'
 

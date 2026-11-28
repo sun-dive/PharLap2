@@ -90,7 +90,7 @@ function provider(table, { maxRetries = 3 } = {}) {
   const a = http.limiter('https://one.test/x'), b = http.limiter('https://two.test/y')
   ok(a !== b, '★ each HOST gets its own queue, so one slow service cannot stall another')
   ok(http.limiter('https://one.test/z') === a, '…and the same host reuses its queue')
-  ok(MIN_REQUEST_GAP_MS === 350, '★ the gap is the deployed wallet’s 350 ms, carried over unchanged')
+  ok(MIN_REQUEST_GAP_MS === 300, '★ the gap is 300 ms, inside the explorers’ limit of one request every 250 ms')
 }
 
 // ══ ⚠⚠⚠ THE INVARIANT: EVERY REQUEST THIS TRANSPORT HANDLES IS PACED ════════════════════════════════

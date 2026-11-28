@@ -12,7 +12,7 @@
  *   disagreeing. None of those can be asked for on demand from a live service.
  */
 import { link } from './link.mjs'
-import { ChainHttp } from '../impl/js/chain.mjs'
+import { ChainHttp, MIN_REQUEST_GAP_MS } from '../impl/js/chain.mjs'
 import { Signer, txidToWire } from '../impl/js/signer.mjs'
 import { Tx } from '../impl/js/transaction.mjs'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -47,7 +47,7 @@ const A = 'aa'.repeat(31) + '01', B = 'bb'.repeat(31) + '02'
 const row = (h, pos, val, extra = {}) => ({ tx_hash: h, tx_pos: pos, value: val, ...extra })
 
 /** a provider wired to a fake network; `route` answers from url + init */
-function wired(route, { gap = 350 } = {}) {
+function wired(route, { gap = MIN_REQUEST_GAP_MS } = {}) {
   const calls = []
   const c = clock()
   const http = new ChainHttp({
@@ -184,7 +184,7 @@ ok(Object.getOwnPropertyNames(WP.WalletProvider.prototype).length >= 24,
 
 // ── ⚠ the cadence is SANE, not merely present ───────────────────────────────────────────────────────
 {
-  const perPoll = GATE_POLL_INTERVAL_MS + 350   // the poll interval plus the transport's own gap
+  const perPoll = GATE_POLL_INTERVAL_MS + MIN_REQUEST_GAP_MS   // the poll interval plus the transport's own gap
   ok(perPoll >= 2000 && perPoll <= 3000, `★ each relay is asked about every ${perPoll} ms`)
   ok(GATE_POLL_TRIES * perPoll < 30000,
      `…and a gate round gives up inside ${Math.round(GATE_POLL_TRIES * perPoll / 1000)} s`)

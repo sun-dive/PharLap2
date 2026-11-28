@@ -3,9 +3,9 @@
 ══ THE CHAIN SERVICE — the only way this wallet talks to the network ═══════════════════════════════
 
 ★★ PORTED from the deployed wallet's `queuedFetch`, whose behaviour is not guesswork: it has survived
-  contact with the free tier. What carried over unchanged, because it was right:
+  contact with the free tier. What carried over, because it was right:
 
-    | a MINIMUM GAP between requests | 350 ms, so concurrent paths cannot burst through the limit |
+    | a MINIMUM GAP between requests | 300 ms, so concurrent paths cannot burst through the limit |
     | a 429 branch WITH BACKOFF      | 500 / 1000 / 1500 ms, three retries                        |
 
   ⛔ 429 IS NOT AN ERROR AND MUST NEVER BE REPORTED AS ONE. It means "ask again shortly". A verifier
@@ -34,7 +34,7 @@
 
 ## MIN_REQUEST_GAP_MS
 
-★ The deployed wallet's number, and it has survived contact with the free tier.
+★ 300 ms: inside the explorers' free-tier limit of one request every 250 ms, with room to spare.
 
 ## BANANA_MAIN
 
